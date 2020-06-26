@@ -47,13 +47,15 @@ exports.sendOrderNotification = functions
     console.log(response);
   });
 
-exports.keepUserOrderCount = functions
+exports.keepUserOrderCount_copyOrderToMerchant = functions
   .region("asia-northeast1")
   .firestore.document("/users/{userId}/orders/{orderId}")
   .onCreate((snap, context) => {
     return db.runTransaction(async (transaction) => {
       // Get the metadata document and increment the count.
-      const { userId } = context.params;
+      const { userId, orderId } = context.params;
+      const orderData = snap.data();
+      const { merchantId } = orderData;
       const orderRef = snap.ref;
       const orderNumberRef = db
         .collection("users")
@@ -65,6 +67,60 @@ exports.keepUserOrderCount = functions
         .get(orderNumberRef)
         .then((document) => {
           if (document.exists) {
+            transaction.update(orderNumberRef, {
+              orderNumber: firestore.FieldValue.increment(1),
+            });
+
+            return document.data();
+          } else {
+            transaction.set(orderNumberRef, { orderNumber: 1 });
+
+            return { orderNumber: 0 };
+          }
+        })
+        .catch((err) => console.error(err));
+
+      const orderNumber = orderNumberData.orderNumber + 1;
+
+      const merchantOrderRef = db
+        .collection("merchants")
+        .doc(merchantId)
+        .collection("orders")
+        .doc(orderId);
+      const merchantOrderData = { ...orderData, userId };
+      delete merchantOrderData.merchantId;
+
+      // Update the order document
+      transaction.update(orderRef, {
+        orderNumber,
+      });
+
+      transaction.set(merchantOrderRef, { ...merchantOrderData });
+    });
+  });
+
+exports.keepMercantOrderCount = functions
+  .region("asia-northeast1")
+  .firestore.document("/merchants/{merchantId}/orders/{orderId}")
+  .onCreate((snap, context) => {
+    return db.runTransaction(async (transaction) => {
+      // Get the metadata document and increment the count.
+      const { merchantId } = context.params;
+      const orderRef = snap.ref;
+      const orderNumberRef = db
+        .collection("merchants")
+        .doc(merchantId)
+        .collection("orders")
+        .doc("order_number");
+
+      const orderNumberData = await transaction
+        .get(orderNumberRef)
+        .then((document) => {
+          if (document.exists) {
+            transaction.update(orderNumberRef, {
+              orderNumber: firestore.FieldValue.increment(1),
+            });
+
             return document.data();
           } else {
             transaction.set(orderNumberRef, { orderNumber: 0 });
@@ -74,11 +130,11 @@ exports.keepUserOrderCount = functions
         })
         .catch((err) => console.error(err));
 
-      const number = orderNumberData.orderNumber + 1;
+      const orderNumber = orderNumberData.orderNumber + 1;
 
       // Update the order document
       transaction.update(orderRef, {
-        orderNumber: number,
+        orderNumber,
       });
     });
   });
