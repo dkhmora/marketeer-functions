@@ -13,7 +13,7 @@ exports.keepUserOrderCount_copyOrderToMerchant = functions
       // Get the metadata document and increment the count.
       const { userId, orderId } = context.params;
       const orderData = snap.data();
-      const { merchantId } = orderData;
+      const { merchantId } = orderData.storeDetails;
       const orderRef = snap.ref;
       const userRef = db.collection("users").doc(userId);
 
@@ -46,7 +46,8 @@ exports.keepUserOrderCount_copyOrderToMerchant = functions
         .collection("orders")
         .doc(orderId);
       const merchantOrderData = { ...orderData, userId };
-      delete merchantOrderData.merchantId;
+      delete merchantOrderData.storeDetails;
+      delete merchantOrderData.reviewed;
 
       // Update the order document
       transaction.update(orderRef, {
