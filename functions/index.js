@@ -5,99 +5,98 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
-exports.keepOrderCount = functions
+exports.keepOrderCount_sendOrderNotificationToMerchant = functions
   .region("asia-northeast1")
   .firestore.document("/orders/{orderId}")
   .onCreate((snap, context) => {
-    return db.runTransaction(async (transaction) => {
-      // Get the metadata document and increment the count.
-      const orderData = snap.data();
-      const { userId } = orderData;
-      const { merchantId } = orderData.storeDetails;
-      const orderRef = snap.ref;
-      const userRef = db.collection("users").doc(userId);
-      const merchantRef = db.collection("merchants").doc(merchantId);
-      let userOrderNumberData = null;
-      let merchantOrderNumberData = null;
+    return db
+      .runTransaction(async (transaction) => {
+        // Get the metadata document and increment the count.
+        const orderData = snap.data();
+        const { userId } = orderData;
+        const { merchantId } = orderData.storeDetails;
+        const orderRef = snap.ref;
+        const userRef = db.collection("users").doc(userId);
+        const merchantRef = db.collection("merchants").doc(merchantId);
+        let userOrderNumberData = null;
+        let merchantOrderNumberData = null;
 
-      await transaction.getAll(userRef, merchantRef).then((documents) => {
-        const userDoc = documents[0];
-        const merchantDoc = documents[1];
+        await transaction.getAll(userRef, merchantRef).then((documents) => {
+          const userDoc = documents[0];
+          const merchantDoc = documents[1];
 
-        if (userDoc.exists) {
-          transaction.update(userRef, {
-            orderNumber: firestore.FieldValue.increment(1),
-          });
+          if (userDoc.exists) {
+            transaction.update(userRef, {
+              orderNumber: firestore.FieldValue.increment(1),
+            });
 
-          userOrderNumberData = userDoc.data();
-        } else {
-          transaction.update(userRef, { orderNumber: 1 });
+            userOrderNumberData = userDoc.data();
+          } else {
+            transaction.update(userRef, { orderNumber: 1 });
 
-          userOrderNumberData = { orderNumber: 0 };
-        }
+            userOrderNumberData = { orderNumber: 0 };
+          }
 
-        if (merchantDoc.exists) {
-          transaction.update(merchantRef, {
-            orderNumber: firestore.FieldValue.increment(1),
-          });
+          if (merchantDoc.exists) {
+            transaction.update(merchantRef, {
+              orderNumber: firestore.FieldValue.increment(1),
+            });
 
-          merchantOrderNumberData = merchantDoc.data();
-        } else {
-          transaction.update(merchantRef, { orderNumber: 1 });
+            merchantOrderNumberData = merchantDoc.data();
+          } else {
+            transaction.update(merchantRef, { orderNumber: 1 });
 
-          merchantOrderNumberData = { orderNumber: 0 };
-        }
+            merchantOrderNumberData = { orderNumber: 0 };
+          }
 
-        return null;
-      });
+          return null;
+        });
 
-      const userOrderNumber = userOrderNumberData.orderNumber
-        ? userOrderNumberData.orderNumber + 1
-        : 1;
+        const userOrderNumber = userOrderNumberData.orderNumber
+          ? userOrderNumberData.orderNumber + 1
+          : 1;
 
-      const merchantOrderNumber = merchantOrderNumberData.orderNumber
-        ? merchantOrderNumberData.orderNumber + 1
-        : 1;
+        const merchantOrderNumber = merchantOrderNumberData.orderNumber
+          ? merchantOrderNumberData.orderNumber + 1
+          : 1;
 
-      // Update user order field
-      transaction.update(orderRef, {
-        orderNumber: userOrderNumber,
-        ["storeDetails.orderNumber"]: merchantOrderNumber,
-      });
-    });
-  });
+        // Update order number fields
+        transaction.update(orderRef, {
+          orderNumber: userOrderNumber,
+          ["storeDetails.orderNumber"]: merchantOrderNumber,
+        });
 
-exports.sendOrderNotificationToMerchant = functions
-  .region("asia-northeast1")
-  .firestore.document("/orders/{orderId}")
-  .onCreate(async (snap, context) => {
-    // Send Order Notification to Merchants
-
-    const orderData = snap.data();
-    const { merchantId, orderNumber } = orderData.storeDetails;
-
-    let fcmTokens = [];
-
-    await db
-      .collection("merchant_fcm")
-      .doc(merchantId)
-      .get()
-      .then((document) => {
-        return (fcmTokens = document.data().fcmTokens);
+        return merchantOrderNumber;
       })
-      .catch((err) => console.log(err));
+      .then(async (orderNumber) => {
+        // Send Order Notification to Merchant
 
-    const orderNotifications = [];
+        const orderData = snap.data();
+        const { merchantId } = orderData.storeDetails;
 
-    fcmTokens.map((token) => {
-      orderNotifications.push({
-        notification: {
-          title: "New Order!",
-          body: `Order # ${orderNumber}; Total Amount: ${orderData.totalAmount}`,
-        },
-        token,
+        let fcmTokens = [];
+
+        await db
+          .collection("merchant_fcm")
+          .doc(merchantId)
+          .get()
+          .then((document) => {
+            return (fcmTokens = document.data().fcmTokens);
+          })
+          .catch((err) => console.log(err));
+
+        const orderNotifications = [];
+
+        fcmTokens.map((token) => {
+          orderNotifications.push({
+            notification: {
+              title: "New Order!",
+              body: `Order # ${orderNumber}; Total Amount: ${orderData.totalAmount}`,
+            },
+            token,
+          });
+        });
+
+        return await admin.messaging().sendAll(orderNotifications);
       });
-    });
-
-    return await admin.messaging().sendAll(orderNotifications);
   });
