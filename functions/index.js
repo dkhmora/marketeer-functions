@@ -5,129 +5,99 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
-exports.keepUserOrderCount_copyOrderToMerchant = functions
+exports.keepOrderCount = functions
   .region("asia-northeast1")
-  .firestore.document("/users/{userId}/orders/{orderId}")
+  .firestore.document("/orders/{orderId}")
   .onCreate((snap, context) => {
     return db.runTransaction(async (transaction) => {
       // Get the metadata document and increment the count.
-      const { userId, orderId } = context.params;
       const orderData = snap.data();
+      const { userId } = orderData;
       const { merchantId } = orderData.storeDetails;
       const orderRef = snap.ref;
       const userRef = db.collection("users").doc(userId);
+      const merchantRef = db.collection("merchants").doc(merchantId);
+      let userOrderNumberData = null;
+      let merchantOrderNumberData = null;
 
-      const orderNumberData = await transaction
-        .get(userRef)
-        .then((document) => {
-          if (document.exists) {
-            transaction.update(userRef, {
-              orderNumber: firestore.FieldValue.increment(1),
-            });
+      await transaction.getAll(userRef, merchantRef).then((documents) => {
+        const userDoc = documents[0];
+        const merchantDoc = documents[1];
 
-            return document.data();
-          } else {
-            transaction.update(userRef, { orderNumber: 1 });
+        if (userDoc.exists) {
+          transaction.update(userRef, {
+            orderNumber: firestore.FieldValue.increment(1),
+          });
 
-            return { orderNumber: 0 };
-          }
-        })
-        .catch((err) => console.error(err));
+          userOrderNumberData = userDoc.data();
+        } else {
+          transaction.update(userRef, { orderNumber: 1 });
 
-      const orderNumber = orderNumberData.orderNumber
-        ? orderNumberData.orderNumber + 1
-        : 1;
+          userOrderNumberData = { orderNumber: 0 };
+        }
 
-      console.log("1", orderNumber, orderNumberData.orderNumber);
+        if (merchantDoc.exists) {
+          transaction.update(merchantRef, {
+            orderNumber: firestore.FieldValue.increment(1),
+          });
 
-      const merchantOrderRef = db
-        .collection("merchants")
-        .doc(merchantId)
-        .collection("orders")
-        .doc(orderId);
-      const merchantOrderData = { ...orderData, userId };
-      delete merchantOrderData.storeDetails;
-      delete merchantOrderData.reviewed;
+          merchantOrderNumberData = merchantDoc.data();
+        } else {
+          transaction.update(merchantRef, { orderNumber: 1 });
 
-      // Update the order document
-      transaction.update(orderRef, {
-        orderNumber,
+          merchantOrderNumberData = { orderNumber: 0 };
+        }
+
+        return null;
       });
 
-      transaction.set(merchantOrderRef, { ...merchantOrderData });
+      const userOrderNumber = userOrderNumberData.orderNumber
+        ? userOrderNumberData.orderNumber + 1
+        : 1;
+
+      const merchantOrderNumber = merchantOrderNumberData.orderNumber
+        ? merchantOrderNumberData.orderNumber + 1
+        : 1;
+
+      // Update user order field
+      transaction.update(orderRef, {
+        orderNumber: userOrderNumber,
+        ["storeDetails.orderNumber"]: merchantOrderNumber,
+      });
     });
   });
 
-exports.keepMercantOrderCount_sendOrderNotificationToMerchant = functions
+exports.sendOrderNotificationToMerchant = functions
   .region("asia-northeast1")
-  .firestore.document("/merchants/{merchantId}/orders/{orderId}")
-  .onCreate((snap, context) => {
-    const { merchantId } = context.params;
-    const orderRef = snap.ref;
+  .firestore.document("/orders/{orderId}")
+  .onCreate(async (snap, context) => {
+    // Send Order Notification to Merchants
 
-    return db
-      .runTransaction(async (transaction) => {
-        // Get the metadata document and increment the count.
-        const merchantRef = db.collection("merchants").doc(merchantId);
+    const orderData = snap.data();
+    const { merchantId, orderNumber } = orderData.storeDetails;
 
-        const orderNumberData = await transaction
-          .get(merchantRef)
-          .then((document) => {
-            if (document.exists) {
-              transaction.update(merchantRef, {
-                orderNumber: firestore.FieldValue.increment(1),
-              });
+    let fcmTokens = [];
 
-              return document.data();
-            } else {
-              transaction.update(merchantRef, { orderNumber: 0 });
-
-              return { orderNumber: 0 };
-            }
-          })
-          .catch((err) => console.error(err));
-
-        const orderNumber = orderNumberData.orderNumber
-          ? orderNumberData.orderNumber + 1
-          : 1;
-
-        console.log("2", orderNumber, orderNumberData.orderNumber);
-
-        // Update the order document
-        transaction.update(orderRef, {
-          orderNumber,
-        });
-
-        return orderNumber;
+    await db
+      .collection("merchant_fcm")
+      .doc(merchantId)
+      .get()
+      .then((document) => {
+        return (fcmTokens = document.data().fcmTokens);
       })
-      .then(async (orderNumber) => {
-        // Send Notification to Merchants
+      .catch((err) => console.log(err));
 
-        const orderData = snap.data();
+    const orderNotifications = [];
 
-        let fcmTokens = [];
-
-        await db
-          .collection("merchant_fcm")
-          .doc(merchantId)
-          .get()
-          .then((document) => {
-            return (fcmTokens = document.data().fcmTokens);
-          })
-          .catch((err) => console.log(err));
-
-        const orderNotifications = [];
-
-        fcmTokens.map((token) => {
-          orderNotifications.push({
-            notification: {
-              title: "New Order!",
-              body: `Order # ${orderNumber}; Total Amount: ${orderData.totalAmount}`,
-            },
-            token,
-          });
-        });
-
-        return await admin.messaging().sendAll(orderNotifications);
+    fcmTokens.map((token) => {
+      orderNotifications.push({
+        notification: {
+          title: "New Order!",
+          body: `Order # ${orderNumber}; Total Amount: ${orderData.totalAmount}`,
+        },
+        token,
       });
+    });
+
+    return await admin.messaging().sendAll(orderNotifications);
   });
