@@ -13,90 +13,129 @@ exports.keepOrderCount_sendOrderNotificationToMerchant = functions
       .runTransaction(async (transaction) => {
         // Get the metadata document and increment the count.
         const orderData = snap.data();
-        const { userId } = orderData;
-        const { merchantId } = orderData.storeDetails;
+        const { userId, totalAmount, storeDetails } = orderData;
+        const { merchantId } = storeDetails;
         const orderRef = snap.ref;
         const userRef = db.collection("users").doc(userId);
         const merchantRef = db.collection("merchants").doc(merchantId);
-        let userOrderNumberData = null;
-        let merchantOrderNumberData = null;
+        let userData = null;
+        let merchantData = null;
 
         await transaction.getAll(userRef, merchantRef).then((documents) => {
           const userDoc = documents[0];
           const merchantDoc = documents[1];
 
           if (userDoc.exists) {
-            transaction.update(userRef, {
-              orderNumber: firestore.FieldValue.increment(1),
-            });
-
-            userOrderNumberData = userDoc.data();
+            userData = userDoc.data();
           } else {
-            transaction.update(userRef, { orderNumber: 1 });
-
-            userOrderNumberData = { orderNumber: 0 };
+            console.error("Error: User does not exist!");
           }
 
           if (merchantDoc.exists) {
-            transaction.update(merchantRef, {
-              orderNumber: firestore.FieldValue.increment(1),
-            });
-
-            merchantOrderNumberData = merchantDoc.data();
+            merchantData = merchantDoc.data();
           } else {
-            transaction.update(merchantRef, { orderNumber: 1 });
-
-            merchantOrderNumberData = { orderNumber: 0 };
+            console.error("Error: Merchant does not exist!");
           }
 
           return null;
         });
 
-        const userOrderNumber = userOrderNumberData.orderNumber
-          ? userOrderNumberData.orderNumber + 1
+        // Calculate transaction fee and subtract it from current credit data
+        const { creditData } = merchantData;
+        const { credits, creditThreshold } = creditData;
+        const transactionFee = totalAmount * 0.05;
+        const newCredits = credits - transactionFee;
+        const newCreditThresholdReached =
+          newCredits < creditThreshold ? true : false;
+
+        console.log(transactionFee, newCredits, newCreditThresholdReached);
+
+        // Update merchant order number and credits fields
+        transaction.update(merchantRef, {
+          orderNumber: firestore.FieldValue.increment(1),
+          ["creditData.credits"]: newCredits,
+          ["creditData.creditThresholdReached"]: newCreditThresholdReached,
+        });
+
+        // Update user order number field
+        transaction.update(userRef, {
+          orderNumber: firestore.FieldValue.increment(1),
+        });
+
+        const incrementedUserOrderNumber = userData.orderNumber
+          ? userData.orderNumber + 1
           : 1;
 
-        const merchantOrderNumber = merchantOrderNumberData.orderNumber
-          ? merchantOrderNumberData.orderNumber + 1
+        const incrementedMerchantOrderNumber = merchantData.orderNumber
+          ? merchantData.orderNumber + 1
           : 1;
 
         // Update order number fields
         transaction.update(orderRef, {
-          orderNumber: userOrderNumber,
-          ["storeDetails.orderNumber"]: merchantOrderNumber,
+          orderNumber: incrementedUserOrderNumber,
+          ["storeDetails.orderNumber"]: incrementedMerchantOrderNumber,
+          transactionFee,
         });
 
-        return merchantOrderNumber;
+        // Pass merchant order number and updated merchant credits for order notification
+        return {
+          incrementedMerchantOrderNumber,
+          newCredits,
+          newCreditThresholdReached,
+        };
       })
-      .then(async (orderNumber) => {
-        // Send Order Notification to Merchant
+      .then(
+        async ({
+          incrementedMerchantOrderNumber,
+          newCredits,
+          newCreditThresholdReached,
+        }) => {
+          // Send Order Notification to Merchant
+          const orderData = snap.data();
+          const { merchantId } = orderData.storeDetails;
+          let fcmTokens = [];
 
-        const orderData = snap.data();
-        const { merchantId } = orderData.storeDetails;
+          await db
+            .collection("merchant_fcm")
+            .doc(merchantId)
+            .get()
+            .then((document) => {
+              if (document.exists) {
+                return (fcmTokens = document.data().fcmTokens);
+              }
+              return null;
+            })
+            .catch((err) => console.log(err));
 
-        let fcmTokens = [];
+          const orderNotifications = [];
 
-        await db
-          .collection("merchant_fcm")
-          .doc(merchantId)
-          .get()
-          .then((document) => {
-            return (fcmTokens = document.data().fcmTokens);
-          })
-          .catch((err) => console.log(err));
+          const warningMessage =
+            "Warning: Credit threshold reached. Please load up to receive orders.";
 
-        const orderNotifications = [];
+          fcmTokens.map((token) => {
+            orderNotifications.push({
+              notification: {
+                title: "You've got a new order!",
+                body: `Order # ${incrementedMerchantOrderNumber}; Total Amount: ${orderData.totalAmount}; Credits left: ${newCredits}`,
+              },
+              token,
+            });
 
-        fcmTokens.map((token) => {
-          orderNotifications.push({
-            notification: {
-              title: "New Order!",
-              body: `Order # ${orderNumber}; Total Amount: ${orderData.totalAmount}`,
-            },
-            token,
+            if (newCreditThresholdReached) {
+              orderNotifications.push({
+                notification: {
+                  title: "WARNING: You've run out of credit load!",
+                  body: `"Please load up in order to receive more orders.
+                    If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
+                },
+                token,
+              });
+            }
           });
-        });
 
-        return await admin.messaging().sendAll(orderNotifications);
-      });
+          return orderNotifications.length > 0
+            ? await admin.messaging().sendAll(orderNotifications)
+            : console.log(`No fcm token found for ${merchantId}`);
+        }
+      );
   });
