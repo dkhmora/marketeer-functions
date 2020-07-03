@@ -13,8 +13,7 @@ exports.keepOrderCount_sendOrderNotificationToMerchant = functions
       .runTransaction(async (transaction) => {
         // Get the metadata document and increment the count.
         const orderData = snap.data();
-        const { userId, totalAmount, storeDetails } = orderData;
-        const { merchantId } = storeDetails;
+        const { userId, totalAmount, merchantId } = orderData;
         const orderRef = snap.ref;
         const userRef = db.collection("users").doc(userId);
         const merchantRef = db.collection("merchants").doc(merchantId);
@@ -73,7 +72,6 @@ exports.keepOrderCount_sendOrderNotificationToMerchant = functions
         // Update order number fields
         transaction.update(orderRef, {
           orderNumber: incrementedUserOrderNumber,
-          ["storeDetails.orderNumber"]: incrementedMerchantOrderNumber,
           transactionFee,
         });
 
@@ -92,7 +90,7 @@ exports.keepOrderCount_sendOrderNotificationToMerchant = functions
         }) => {
           // Send Order Notification to Merchant
           const orderData = snap.data();
-          const { merchantId } = orderData.storeDetails;
+          const { merchantId } = orderData;
           let fcmTokens = [];
 
           await db
