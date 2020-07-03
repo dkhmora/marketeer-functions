@@ -1,7 +1,14 @@
 const functions = require("firebase-functions");
+const firebase = require("firebase");
 const admin = require("firebase-admin");
 const { firestore } = require("firebase-admin");
+const { config } = require("./FBconfig");
+
 admin.initializeApp();
+
+firebase.initializeApp({
+  ...config,
+});
 
 const db = admin.firestore();
 
@@ -137,3 +144,23 @@ exports.keepOrderCount_sendOrderNotificationToMerchant = functions
         }
       );
   });
+
+exports.signInWithPhoneAndPassword = functions.https.onCall(
+  async (data, context) => {
+    const phoneNumber = data.phone;
+    if (phoneNumber === undefined) {
+      return { s: 400, m: "Bad argument: no phone number" };
+    }
+    const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
+    const pass = data.password;
+    try {
+      await firebase.auth().signInWithEmailAndPassword(user.email, pass);
+    } catch (e) {
+      return { s: 400, m: "Wrong password" };
+    }
+    const token = await admin
+      .auth()
+      .createCustomToken(user.uid, { devClaim: true }); //developer claims, optional param
+    return { s: 200, t: token };
+  }
+);
