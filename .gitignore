@@ -61,5 +61,5 @@ node_modules/
 # Yarn Integrity file
 .yarn-integrity
 
-# firebase credentials
-FBconfig.js
+# API credentials
+config.js

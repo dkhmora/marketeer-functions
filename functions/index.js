@@ -2,12 +2,12 @@ const functions = require("firebase-functions");
 const firebase = require("firebase");
 const admin = require("firebase-admin");
 const { firestore } = require("firebase-admin");
-const { config } = require("./FBconfig");
+const { FB_CONFIG, HERE_API_KEY } = require("./config");
 
 admin.initializeApp();
 
 firebase.initializeApp({
-  ...config,
+  ...FB_CONFIG,
 });
 
 const db = admin.firestore();
@@ -175,3 +175,47 @@ exports.updateMerchantCredits = functions
         : null;
     });
   });
+
+exports.getAddressFromCoordinates = functions.https.onCall(
+  async (data, context) => {
+    const { latitude, longitude } = data;
+    let locationDetails = null;
+
+    if (latitude === undefined || longitude === undefined) {
+      return { s: 400, m: "Bad argument: no phone number" };
+    }
+
+    try {
+      locationDetails = await new Promise((resolve) => {
+        const url = `https://reverse.geocoder.ls.hereapi.com/6.2/reversegeocode.json?apiKey=${HERE_API_KEY}&mode=retrieveAddresses&prox=${latitude},${longitude}`;
+
+        fetch(url)
+          .then((res) => res.json())
+          .then((resJson) => {
+            if (
+              resJson &&
+              resJson.Response &&
+              resJson.Response.View &&
+              resJson.Response.View[0] &&
+              resJson.Response.View[0].Result &&
+              resJson.Response.View[0].Result[0]
+            ) {
+              return resolve(
+                resJson.Response.View[0].Result[0].Location.Address.Label
+              );
+            } else {
+              return resolve();
+            }
+          })
+          .catch((e) => {
+            console.log("Error in getAddressFromCoordinates", e);
+            resolve();
+          });
+      });
+    } catch (e) {
+      return { s: 400, m: "Error, something went wrong." };
+    }
+
+    return { s: 200, locationDetails };
+  }
+);
