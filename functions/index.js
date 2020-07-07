@@ -20,15 +20,27 @@ exports.keepOrderCount_sendOrderNotificationToMerchant = functions
       .runTransaction(async (transaction) => {
         // Get the metadata document and increment the count.
         const orderData = snap.data();
-        const { userId } = orderData;
+        const { userId, merchantId } = orderData;
         const orderRef = snap.ref;
         const userRef = db.collection("users").doc(userId);
+        const merchantRef = db.collection("merchants").doc(merchantId);
+        let userData = null;
+        let merchantData = null;
 
-        const userData = await transaction.get(userRef).then((documents) => {
-          if (documents.exists) {
-            return documents.data();
+        await transaction.getAll(userRef, merchantRef).then((documents) => {
+          const userDoc = documents[0];
+          const merchantDoc = documents[1];
+
+          if (userDoc.exists) {
+            userData = userDoc.data();
           } else {
             console.error("Error: User does not exist!");
+          }
+
+          if (merchantDoc.exists) {
+            merchantData = merchantDoc.data();
+          } else {
+            console.error("Error: Merchant does not exist!");
           }
 
           return null;
@@ -50,7 +62,10 @@ exports.keepOrderCount_sendOrderNotificationToMerchant = functions
         // Update order number fields
         transaction.update(orderRef, {
           orderNumber: incrementedUserOrderNumber,
-          transactionFee,
+        });
+
+        transaction.update(merchantRef, {
+          orderNumber: incrementedMerchantOrderNumber,
         });
 
         // Pass merchant order number
@@ -91,8 +106,9 @@ exports.keepOrderCount_sendOrderNotificationToMerchant = functions
       });
   });
 
-exports.signInWithPhoneAndPassword = functions.https.onCall(
-  async (data, context) => {
+exports.signInWithPhoneAndPassword = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const phoneNumber = data.phone;
     if (phoneNumber === undefined) {
       return { s: 400, m: "Bad argument: no phone number" };
@@ -108,8 +124,7 @@ exports.signInWithPhoneAndPassword = functions.https.onCall(
       .auth()
       .createCustomToken(user.uid, { devClaim: true }); //developer claims, optional param
     return { s: 200, t: token };
-  }
-);
+  });
 
 exports.updateMerchantCredits = functions
   .region("asia-northeast1")
@@ -176,13 +191,14 @@ exports.updateMerchantCredits = functions
     });
   });
 
-exports.getAddressFromCoordinates = functions.https.onCall(
-  async (data, context) => {
+exports.getAddressFromCoordinates = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const { latitude, longitude } = data;
     let locationDetails = null;
 
     if (latitude === undefined || longitude === undefined) {
-      return { s: 400, m: "Bad argument: no phone number" };
+      return { s: 400, m: "Bad argument: Incomplete coordinates" };
     }
 
     try {
@@ -217,5 +233,4 @@ exports.getAddressFromCoordinates = functions.https.onCall(
     }
 
     return { s: 200, locationDetails };
-  }
-);
+  });
