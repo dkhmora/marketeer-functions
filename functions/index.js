@@ -209,13 +209,8 @@ exports.placeOrder = functions
       merchantIdRefs[merchantId] = db.collection("merchants").doc(merchantId);
     });
 
-    console.log("merchantIdRefs", merchantIdRefs);
-
     const merchantIds = Object.keys(merchantIdRefs);
     const merchantRefs = Object.values(merchantIdRefs);
-
-    console.log("merchantIds", merchantIds);
-    console.log("merchantRefs", merchantRefs);
 
     let merchantData = {};
     let userData = {};
@@ -240,8 +235,6 @@ exports.placeOrder = functions
               console.error("Error: Merchant does not exist!");
             }
           });
-
-          console.log("userData, merchantData", userData, merchantData);
 
           return null;
         });
