@@ -12,100 +12,6 @@ firebase.initializeApp({
 
 const db = admin.firestore();
 
-exports.keepOrderCount_sendOrderNotificationToMerchant = functions
-  .region("asia-northeast1")
-  .firestore.document("/orders/{orderId}")
-  .onCreate(async (snap, context) => {
-    return db
-      .runTransaction(async (transaction) => {
-        // Get the metadata document and increment the count.
-        const orderData = snap.data();
-        const { userId, merchantId } = orderData;
-        const orderRef = snap.ref;
-        const userRef = db.collection("users").doc(userId);
-        const merchantRef = db.collection("merchants").doc(merchantId);
-        let userData = null;
-        let merchantData = null;
-
-        await transaction.getAll(userRef, merchantRef).then((documents) => {
-          const userDoc = documents[0];
-          const merchantDoc = documents[1];
-
-          if (userDoc.exists) {
-            userData = userDoc.data();
-          } else {
-            console.error("Error: User does not exist!");
-          }
-
-          if (merchantDoc.exists) {
-            merchantData = merchantDoc.data();
-          } else {
-            console.error("Error: Merchant does not exist!");
-          }
-
-          return null;
-        });
-
-        // Update user order number field
-        transaction.update(userRef, {
-          orderNumber: firestore.FieldValue.increment(1),
-        });
-
-        const incrementedUserOrderNumber = userData.orderNumber
-          ? userData.orderNumber + 1
-          : 1;
-
-        const incrementedMerchantOrderNumber = merchantData.orderNumber
-          ? merchantData.orderNumber + 1
-          : 1;
-
-        // Update order number fields
-        transaction.update(orderRef, {
-          orderNumber: incrementedUserOrderNumber,
-        });
-
-        transaction.update(merchantRef, {
-          orderNumber: incrementedMerchantOrderNumber,
-        });
-
-        // Pass merchant order number
-        return { incrementedMerchantOrderNumber };
-      })
-      .then(async ({ incrementedMerchantOrderNumber }) => {
-        // Send Order Notification to Merchant
-        const orderData = snap.data();
-        const { merchantId } = orderData;
-        const merchantFcmRef = db.collection("merchant_fcm").doc(merchantId);
-        let fcmTokens = [];
-
-        await merchantFcmRef
-          .get()
-          .then((document) => {
-            if (document.exists) {
-              return (fcmTokens = document.data().fcmTokens);
-            }
-            return null;
-          })
-          .catch((err) => console.log(err));
-
-        const orderNotifications = [];
-
-        fcmTokens.map((token) => {
-          orderNotifications.push({
-            notification: {
-              title: "You've got a new order!",
-              body: `Order # ${incrementedMerchantOrderNumber}; Total Amount: ${orderData.totalAmount}`,
-            },
-            token,
-          });
-        });
-
-        return orderNotifications.length > 0
-          ? await admin.messaging().sendAll(orderNotifications)
-          : console.log(`No fcm token found for ${merchantId}`);
-      });
-  });
-
 exports.signInWithPhoneAndPassword = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
@@ -233,4 +139,221 @@ exports.getAddressFromCoordinates = functions
     }
 
     return { s: 200, locationDetails };
+  });
+
+exports.placeOrder = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { orderInfo } = data;
+
+    const {
+      deliveryCoordinates,
+      deliveryAddress,
+      userCoordinates,
+      userName,
+      userPhoneNumber,
+      userId,
+      storeCartItems,
+      storeSelectedShipping,
+      storeSelectedPaymentMethod,
+      orderStoreList,
+    } = JSON.parse(orderInfo);
+
+    const cartStores = storeCartItems ? [...Object.keys(storeCartItems)] : null;
+
+    const orderStatus = {
+      pending: {
+        status: true,
+        updatedAt: new Date().toISOString(),
+      },
+      unpaid: {
+        status: false,
+      },
+      paid: {
+        status: false,
+      },
+      shipped: {
+        status: false,
+      },
+      completed: {
+        status: false,
+      },
+      cancelled: {
+        status: false,
+      },
+    };
+
+    if (
+      deliveryCoordinates === undefined ||
+      deliveryAddress === undefined ||
+      userCoordinates === undefined ||
+      userName === undefined ||
+      userPhoneNumber === undefined ||
+      userId === undefined ||
+      storeCartItems === undefined ||
+      storeSelectedShipping === undefined ||
+      storeSelectedPaymentMethod === undefined ||
+      orderStoreList === undefined
+    ) {
+      return { s: 400, m: "Bad argument: Incomplete request" };
+    }
+
+    const userRef = db.collection("users").doc(userId);
+    const merchantIdRefs = {};
+
+    cartStores.map((storeName) => {
+      const { merchantId } = orderStoreList.find(
+        (storeDetails) => storeDetails.storeName === storeName
+      );
+
+      merchantIdRefs[merchantId] = db.collection("merchants").doc(merchantId);
+    });
+
+    console.log("merchantIdRefs", merchantIdRefs);
+
+    const merchantIds = Object.keys(merchantIdRefs);
+    const merchantRefs = Object.values(merchantIdRefs);
+
+    console.log("merchantIds", merchantIds);
+    console.log("merchantRefs", merchantRefs);
+
+    let merchantData = {};
+    let userData = {};
+    let ordersStores = {};
+
+    return db
+      .runTransaction(async (transaction) => {
+        await transaction.getAll(userRef, ...merchantRefs).then((documents) => {
+          const userDoc = documents[0];
+          const merchantDocs = documents.slice(1, documents.length);
+
+          if (userDoc.exists) {
+            userData = userDoc.data();
+          } else {
+            console.error("Error: User does not exist!");
+          }
+
+          merchantDocs.map((merchantDoc, index) => {
+            if (merchantDoc.exists) {
+              merchantData[merchantIds[index]] = merchantDoc.data();
+            } else {
+              console.error("Error: Merchant does not exist!");
+            }
+          });
+
+          console.log("userData, merchantData", userData, merchantData);
+
+          return null;
+        });
+
+        const currentUserOrderNumber = userData.orderNumber
+          ? userData.orderNumber
+          : 0;
+
+        cartStores.map(async (storeName) => {
+          const { merchantId } = orderStoreList.find(
+            (storeDetails) => storeDetails.storeName === storeName
+          );
+
+          const storeDetails = merchantData[merchantId];
+
+          const currentMerchantOrderNumber = storeDetails.orderNumber
+            ? storeDetails.orderNumber
+            : 0;
+
+          let quantity = 0;
+          let totalAmount = 0;
+
+          const orderItems = storeCartItems[storeName];
+          const shipping = storeSelectedShipping[storeName];
+          const paymentMethod = storeSelectedPaymentMethod[storeName];
+
+          await orderItems.map((item) => {
+            quantity = item.quantity + quantity;
+            totalAmount = item.price * item.quantity + totalAmount;
+          });
+
+          const orderDetails = {
+            reviewed: false,
+            userCoordinates,
+            deliveryCoordinates,
+            deliveryAddress,
+            userName,
+            userPhoneNumber,
+            userId,
+            createdAt: new Date().toISOString(),
+            orderStatus,
+            quantity,
+            totalAmount,
+            shipping,
+            merchantId,
+            paymentMethod,
+            merchantOrderNumber: currentMerchantOrderNumber + 1,
+            userOrderNumber: currentUserOrderNumber + 1,
+          };
+
+          const ordersRef = firestore().collection("orders");
+          const orderItemsRef = firestore().collection("order_items");
+          const id = ordersRef.doc().id;
+
+          transaction.set(orderItemsRef.doc(id), { items: orderItems });
+          transaction.set(ordersRef.doc(id), { ...orderDetails });
+
+          transaction.update(merchantIdRefs[merchantId], {
+            orderNumber: currentMerchantOrderNumber + 1,
+          });
+          transaction.update(userRef, {
+            orderNumber: currentUserOrderNumber + 1,
+          });
+
+          ordersStores[merchantId] = orderDetails;
+        });
+        const userCartRef = firestore().collection("user_carts").doc(userId);
+
+        transaction.set(userCartRef, {});
+      })
+      .then(async () => {
+        // Send Order Notification to each Merchant
+        return Object.entries(ordersStores).map(
+          async ([merchantId, orderDetails]) => {
+            const merchantFcmRef = db
+              .collection("merchant_fcm")
+              .doc(merchantId);
+            let fcmTokens = [];
+
+            await merchantFcmRef
+              .get()
+              .then((document) => {
+                if (document.exists) {
+                  return (fcmTokens = document.data().fcmTokens);
+                }
+                return null;
+              })
+              .catch((err) => console.log(err));
+            
+            const { merchantOrderNumber, totalAmount } = orderDetails;
+            const orderNotifications = [];
+
+            fcmTokens.map((token) => {
+              orderNotifications.push({
+                notification: {
+                  title: "You've got a new order!",
+                  body: `Order # ${merchantOrderNumber}; Total Amount: ${totalAmount}`,
+                },
+                token,
+              });
+            });
+
+            return orderNotifications.length > 0
+              ? await admin.messaging().sendAll(orderNotifications)
+              : console.log(`No fcm token found for ${merchantId}`);
+          }
+        );
+      })
+      .then(() => {
+        return { s: 200, m: "Orders placed!" };
+      })
+      .catch((err) => {
+        return { s: 500, m: `Error: ${err}` };
+      });
   });
