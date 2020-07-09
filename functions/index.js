@@ -213,9 +213,6 @@ exports.placeOrder = functions
         .doc(merchantId);
     });
 
-    console.log("merchantItemsIdRefs", merchantItemsIdRefs);
-    console.log("merchantIdRefs", merchantIdRefs);
-
     const merchantRefs = Object.values(merchantIdRefs);
     const merchantItemsRefs = Object.values(merchantItemsIdRefs);
 
@@ -224,126 +221,147 @@ exports.placeOrder = functions
     let userData = {};
     let ordersStores = {};
 
+    let error = null;
+
     return db
-      .runTransaction(async (transaction) => {
-        await transaction
-          .getAll(userRef, ...merchantRefs, ...merchantItemsRefs)
-          .then((documents) => {
-            const userDoc = documents[0];
-            const merchantDocs = documents.slice(1, merchantRefs.length + 1);
-            const merchantItemsDocs = documents.slice(
-              merchantDocs.length + 1,
-              documents.length
-            );
+      .runTransaction(
+        async (transaction) => {
+          await transaction
+            .getAll(userRef, ...merchantRefs, ...merchantItemsRefs)
+            .then((documents) => {
+              const userDoc = documents[0];
+              const merchantDocs = documents.slice(1, merchantRefs.length + 1);
+              const merchantItemsDocs = documents.slice(
+                merchantDocs.length + 1,
+                documents.length
+              );
 
-            if (userDoc.exists) {
-              userData = userDoc.data();
-            } else {
-              console.error("Error: User does not exist!");
-            }
-
-            merchantDocs.map((merchantDoc, index) => {
-              if (merchantDoc.exists) {
-                merchantData[merchantDoc.id] = merchantDoc.data();
+              if (userDoc.exists) {
+                userData = userDoc.data();
               } else {
-                console.error("Error: Merchant does not exist!");
+                console.error("Error: User does not exist!");
               }
+
+              merchantDocs.map((merchantDoc, index) => {
+                if (merchantDoc.exists) {
+                  merchantData[merchantDoc.id] = merchantDoc.data();
+                } else {
+                  console.error("Error: Merchant does not exist!");
+                }
+              });
+
+              merchantItemsDocs.map((merchantItemDoc, index) => {
+                if (merchantItemDoc.exists) {
+                  merchantItemsData[
+                    merchantItemDoc.id
+                  ] = merchantItemDoc.data();
+                } else {
+                  console.error(
+                    "Error: Merchant Items Document does not exist!"
+                  );
+                }
+              });
+
+              return null;
             });
 
-            merchantItemsDocs.map((merchantItemDoc, index) => {
-              if (merchantItemDoc.exists) {
-                merchantItemsData[merchantItemDoc.id] = merchantItemDoc.data();
-              } else {
-                console.error("Error: Merchant Items Document does not exist!");
-              }
-            });
-
-            return null;
-          });
-
-        const currentUserOrderNumber = userData.orderNumber
-          ? userData.orderNumber
-          : 0;
-
-        cartStores.map(async (storeName) => {
-          const { merchantId } = orderStoreList.find(
-            (storeDetails) => storeDetails.storeName === storeName
-          );
-
-          const currentStoreItems = [...merchantItemsData[merchantId].items];
-
-          const storeDetails = merchantData[merchantId];
-
-          const currentMerchantOrderNumber = storeDetails.orderNumber
-            ? storeDetails.orderNumber
+          const currentUserOrderNumber = userData.orderNumber
+            ? userData.orderNumber
             : 0;
 
-          let quantity = 0;
-          let totalAmount = 0;
-
-          const orderItems = storeCartItems[storeName];
-          const shipping = storeSelectedShipping[storeName];
-          const paymentMethod = storeSelectedPaymentMethod[storeName];
-
-          await orderItems.map((orderItem) => {
-            quantity = orderItem.quantity + quantity;
-            totalAmount = orderItem.price * orderItem.quantity + totalAmount;
-
-            const currentStoreItemIndex = currentStoreItems.findIndex(
-              (storeItem) => storeItem.name === orderItem.name
+          await cartStores.map(async (storeName) => {
+            const { merchantId } = orderStoreList.find(
+              (storeDetails) => storeDetails.storeName === storeName
             );
 
-            const currentStoreItem = currentStoreItems[currentStoreItemIndex];
+            const currentStoreItems = [...merchantItemsData[merchantId].items];
 
-            currentStoreItem.stock -= orderItem.quantity;
+            const storeDetails = merchantData[merchantId];
+
+            const currentMerchantOrderNumber = storeDetails.orderNumber
+              ? storeDetails.orderNumber
+              : 0;
+
+            let quantity = 0;
+            let totalAmount = 0;
+
+            const orderItems = storeCartItems[storeName];
+            const shipping = storeSelectedShipping[storeName];
+            const paymentMethod = storeSelectedPaymentMethod[storeName];
+
+            orderItems.map((orderItem) => {
+              quantity = orderItem.quantity + quantity;
+              totalAmount = orderItem.price * orderItem.quantity + totalAmount;
+
+              const currentStoreItemIndex = currentStoreItems.findIndex(
+                (storeItem) => storeItem.name === orderItem.name
+              );
+
+              const currentStoreItem = currentStoreItems[currentStoreItemIndex];
+
+              currentStoreItem.stock -= orderItem.quantity;
+
+              currentStoreItem.sales += orderItem.quantity;
+
+              if (currentStoreItem.stock < 0) {
+                error = `Not enough stocks for item ${orderItem.name} from ${storeName}`;
+                return Promise.reject(new functions.https.HttpsError(error));
+              }
+            });
+
+            const orderDetails = {
+              reviewed: false,
+              userCoordinates,
+              deliveryCoordinates,
+              deliveryAddress,
+              userName,
+              userPhoneNumber,
+              userId,
+              createdAt: new Date().toISOString(),
+              orderStatus,
+              quantity,
+              totalAmount,
+              shipping,
+              merchantId,
+              paymentMethod,
+              merchantOrderNumber: currentMerchantOrderNumber + 1,
+              userOrderNumber: currentUserOrderNumber + 1,
+            };
+
+            const ordersRef = firestore().collection("orders");
+            const orderItemsRef = firestore().collection("order_items");
+            const id = ordersRef.doc().id;
+
+            // Place order
+            transaction.set(orderItemsRef.doc(id), {
+              items: orderItems,
+            });
+            transaction.set(ordersRef.doc(id), {
+              ...orderDetails,
+            });
+
+            // Update order number
+            transaction.update(merchantIdRefs[merchantId], {
+              orderNumber: currentMerchantOrderNumber + 1,
+            });
+            transaction.update(userRef, {
+              orderNumber: currentUserOrderNumber + 1,
+            });
+
+            // Update store item quantity
+            transaction.update(merchantItemsIdRefs[merchantId], {
+              items: [...currentStoreItems],
+            });
+
+            ordersStores[merchantId] = orderDetails;
           });
 
-          const orderDetails = {
-            reviewed: false,
-            userCoordinates,
-            deliveryCoordinates,
-            deliveryAddress,
-            userName,
-            userPhoneNumber,
-            userId,
-            createdAt: new Date().toISOString(),
-            orderStatus,
-            quantity,
-            totalAmount,
-            shipping,
-            merchantId,
-            paymentMethod,
-            merchantOrderNumber: currentMerchantOrderNumber + 1,
-            userOrderNumber: currentUserOrderNumber + 1,
-          };
+          const userCartRef = firestore().collection("user_carts").doc(userId);
 
-          const ordersRef = firestore().collection("orders");
-          const orderItemsRef = firestore().collection("order_items");
-          const id = ordersRef.doc().id;
-
-          transaction.set(orderItemsRef.doc(id), { items: orderItems });
-          transaction.set(ordersRef.doc(id), { ...orderDetails });
-
-          transaction.update(merchantIdRefs[merchantId], {
-            orderNumber: currentMerchantOrderNumber + 1,
-          });
-          transaction.update(userRef, {
-            orderNumber: currentUserOrderNumber + 1,
-          });
-
-          console.log('merchantItemsData[merchantId].items', merchantItemsData[merchantId].items);
-          console.log('currentStoreItems', currentStoreItems);
-
-          transaction.update(merchantItemsIdRefs[merchantId], {
-            items: [...currentStoreItems],
-          });
-
-          ordersStores[merchantId] = orderDetails;
-        });
-        const userCartRef = firestore().collection("user_carts").doc(userId);
-
-        transaction.set(userCartRef, {});
-      })
+          transaction.set(userCartRef, {});
+        },
+        { maxAttempts: 5 }
+      )
       .then(async () => {
         // Send Order Notification to each Merchant
         return Object.entries(ordersStores).map(
@@ -383,9 +401,16 @@ exports.placeOrder = functions
         );
       })
       .then(() => {
+        if (error) {
+          return { s: 400, m: error };
+        }
         return { s: 200, m: "Orders placed!" };
       })
       .catch((err) => {
-        return { s: 500, m: `Error: ${err}` };
+        return new functions.https.HttpsError(
+          "invalid-argument",
+          err.error_code ? err.error_code : err.code,
+          err.message
+        );
       });
   });
