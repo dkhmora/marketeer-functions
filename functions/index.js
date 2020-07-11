@@ -414,3 +414,109 @@ exports.placeOrder = functions
         );
       });
   });
+
+exports.addReview = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { orderId, merchantId, reviewTitle, reviewBody, rating } = data;
+    const userId = context.auth.uid;
+    const userName = context.auth.token.name || null;
+
+    console.log(data);
+
+    if (orderId === undefined || rating === undefined) {
+      return { s: 400, m: "Bad argument: Incomplete data" };
+    }
+
+    try {
+      db.runTransaction(async (transaction) => {
+        const orderRef = db.collection("orders").doc(orderId);
+        const orderReviewNumberRef = db
+          .collection("merchants")
+          .doc(merchantId)
+          .collection("order_reviews")
+          .doc("reviewNumber");
+        let firstOrderReview = false;
+        let orderReviewPage = 0;
+
+        await transaction
+          .getAll(orderRef, orderReviewNumberRef)
+          .then((documents) => {
+            const orderDoc = documents[0];
+            const orderReviewNumberDoc = documents[1];
+
+            const review = {
+              reviewTitle,
+              reviewBody,
+              rating,
+              orderId,
+              userId,
+              userName,
+            };
+
+            if (orderDoc.exists) {
+              if (orderDoc.data().reviewed) {
+                return Promise.reject(
+                  new Error("The order is already reviewed")
+                );
+              } else {
+                transaction.update(orderDoc.ref, { reviewed: true });
+              }
+            }
+
+            if (orderReviewNumberDoc.exists) {
+              console.log("orderReviewNumberDoc.exists");
+              orderReviewPage = Math.floor(
+                orderReviewNumberDoc.data().length / 2000
+              );
+
+              if (orderReviewPage <= 0) {
+                orderReviewPage = 1;
+              }
+
+              const orderReviewPageRef = db
+                .collection("merchants")
+                .doc(merchantId)
+                .collection("order_reviews")
+                .doc(`${orderReviewPage}`);
+
+              console.log("update");
+
+              transaction.update(orderReviewNumberRef, {
+                length: firestore.FieldValue.increment(1),
+              });
+
+              transaction.update(orderReviewPageRef, {
+                reviews: firestore.FieldValue.arrayUnion(review),
+              });
+            } else {
+              firstOrderReview = true;
+
+              const firstOrderReviewPageRef = db
+                .collection("merchants")
+                .doc(merchantId)
+                .collection("order_reviews")
+                .doc("1");
+
+              console.log("set");
+              transaction.set(orderReviewNumberRef, {
+                length: 1,
+              });
+
+              transaction.set(firstOrderReviewPageRef, {
+                reviews: [review],
+              });
+            }
+
+            console.log(orderReviewPage);
+
+            return { s: 200, m: "Review placed!" };
+          })
+          .catch((err) => {
+            console.log(err);
+          });
+      });
+    } catch (e) {
+      return { s: 400, m: e };
+    }
+  });
