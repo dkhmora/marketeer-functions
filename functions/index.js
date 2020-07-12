@@ -429,21 +429,17 @@ exports.addReview = functions
     }
 
     try {
-      db.runTransaction(async (transaction) => {
+      return db.runTransaction(async (transaction) => {
         const orderRef = db.collection("orders").doc(orderId);
-        const orderReviewNumberRef = db
-          .collection("merchants")
-          .doc(merchantId)
-          .collection("order_reviews")
-          .doc("reviewNumber");
-        let firstOrderReview = false;
+        const merchantRef = db.collection("merchants").doc(merchantId);
         let orderReviewPage = 0;
+        let newRatingAverage = 0;
 
         await transaction
-          .getAll(orderRef, orderReviewNumberRef)
+          .getAll(orderRef, merchantRef)
           .then((documents) => {
             const orderDoc = documents[0];
-            const orderReviewNumberDoc = documents[1];
+            const merchantDoc = documents[1];
 
             const review = {
               reviewTitle,
@@ -452,6 +448,7 @@ exports.addReview = functions
               orderId,
               userId,
               userName,
+              createdAt: new Date().toISOString(),
             };
 
             if (orderDoc.exists) {
@@ -464,51 +461,55 @@ exports.addReview = functions
               }
             }
 
-            if (orderReviewNumberDoc.exists) {
-              console.log("orderReviewNumberDoc.exists");
-              orderReviewPage = Math.floor(
-                orderReviewNumberDoc.data().length / 2000
-              );
+            if (merchantDoc.exists) {
+              const { reviewNumber, ratingAverage } = merchantDoc.data();
+              console.log("merchantDoc.exists");
 
-              if (orderReviewPage <= 0) {
-                orderReviewPage = 1;
+              if (reviewNumber && ratingAverage) {
+                orderReviewPage = Math.floor(reviewNumber / 2000);
+
+                if (orderReviewPage <= 0) {
+                  orderReviewPage = 1;
+                }
+
+                newRatingAverage = (ratingAverage + rating) / 2;
+
+                const orderReviewPageRef = db
+                  .collection("merchants")
+                  .doc(merchantId)
+                  .collection("order_reviews")
+                  .doc(`${orderReviewPage}`);
+
+                console.log("update");
+
+                transaction.update(orderReviewPageRef, {
+                  reviews: firestore.FieldValue.arrayUnion(review),
+                });
+              } else {
+                newRatingAverage = rating;
+
+                console.log("set");
+
+                const firstOrderReviewPageRef = db
+                  .collection("merchants")
+                  .doc(merchantId)
+                  .collection("order_reviews")
+                  .doc("1");
+
+                transaction.set(firstOrderReviewPageRef, {
+                  reviews: [review],
+                });
               }
 
-              const orderReviewPageRef = db
-                .collection("merchants")
-                .doc(merchantId)
-                .collection("order_reviews")
-                .doc(`${orderReviewPage}`);
-
-              console.log("update");
-
-              transaction.update(orderReviewNumberRef, {
-                length: firestore.FieldValue.increment(1),
+              transaction.update(merchantRef, {
+                reviewNumber: firestore.FieldValue.increment(1),
+                ratingAverage: newRatingAverage,
               });
 
-              transaction.update(orderReviewPageRef, {
-                reviews: firestore.FieldValue.arrayUnion(review),
-              });
+              console.log(orderReviewPage);
             } else {
-              firstOrderReview = true;
-
-              const firstOrderReviewPageRef = db
-                .collection("merchants")
-                .doc(merchantId)
-                .collection("order_reviews")
-                .doc("1");
-
-              console.log("set");
-              transaction.set(orderReviewNumberRef, {
-                length: 1,
-              });
-
-              transaction.set(firstOrderReviewPageRef, {
-                reviews: [review],
-              });
+              return { s: 500, m: "Error, merchant was not found" };
             }
-
-            console.log(orderReviewPage);
 
             return { s: 200, m: "Review placed!" };
           })
