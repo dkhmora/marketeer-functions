@@ -1,0 +1,31 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function userIsMerchantAdmin(merchantId) {
+      return get(/databases/$(database)/documents/merchant_admins/$(merchantId)).data.get(request.auth.uid, false) == true;
+    }
+
+    match /merchants/{merchantId} {
+      allow read, write, delete: if request.auth != null && userIsMerchantAdmin(merchantId);
+      allow read: if request.auth != null;
+    }
+
+    match /merchant_items/{merchantId} {
+      allow write, delete: if userIsMerchantAdmin(merchantId);
+      allow read: if request.auth != null;
+    }
+
+    match /merchant_admins/{merchantId} {
+      allow read: if request.auth != null && resource.data.get(request.auth.uid, 0) == true;
+    }
+
+    match /orders/{orderId} {
+      allow write, read, delete: if request.auth != null && userIsMerchantAdmin(resource.data.merchantId);
+    }
+
+    match /merchant_fcm/{merchantId} {
+      allow write, read, delete: if request.auth != null && userIsMerchantAdmin(merchantId);
+    }
+  }
+}
