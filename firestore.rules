@@ -2,30 +2,69 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function userIsAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userId() {
+      return request.auth.uid;
+    }
+
     function userIsMerchantAdmin(merchantId) {
-      return get(/databases/$(database)/documents/merchant_admins/$(merchantId)).data.get(request.auth.uid, false) == true;
+      return userIsAuthenticated() && get(/databases/$(database)/documents/merchant_admins/$(merchantId)).data[userId()] == true;
+    }
+
+    function userHasPhoneNumber() {
+      return userIsAuthenticated() && request.auth.token.phone_number;
+    }
+
+    function userOwnsDoc(ownerUserId) {
+      return ownerUserId == userId();
     }
 
     match /merchants/{merchantId} {
-      allow read, write, delete: if request.auth != null && userIsMerchantAdmin(merchantId);
-      allow read: if request.auth != null;
+      allow read, write, delete: if userIsMerchantAdmin(merchantId);
+      allow read: if userIsAuthenticated();
     }
 
     match /merchant_items/{merchantId} {
       allow write, delete: if userIsMerchantAdmin(merchantId);
-      allow read: if request.auth != null;
+      allow read: if userIsAuthenticated();
     }
 
     match /merchant_admins/{merchantId} {
-      allow read: if request.auth != null && resource.data.get(request.auth.uid, 0) == true;
+      allow read: if userIsAuthenticated() && resource.data.get(request.auth.uid, 0) == true;
     }
 
     match /orders/{orderId} {
-      allow write, read, delete: if request.auth != null && userIsMerchantAdmin(resource.data.merchantId);
+      allow read, write: if userIsMerchantAdmin(resource.data.merchantId);
+      allow read: if userOwnsDoc(resource.data.userId);
+    }
+
+    match /order_chats/{orderId} {
+      allow read, write: if userIsMerchantAdmin(resource.data.merchantId);
+      allow read, write: if userOwnsDoc(resource.data.userId);
+    }
+
+    match /order_items/{orderId} {
+      allow read, write: if userIsMerchantAdmin(resource.data.merchantId);
+      allow read, write: if userOwnsDoc(resource.data.userId);
+    }
+
+    match /users/{userId} {
+      allow read, write: if userOwnsDoc(userId)
+    }
+
+    match /users_carts/{userId} {
+      allow read, write: if userOwnsDoc(userId)
     }
 
     match /merchant_fcm/{merchantId} {
-      allow write, read, delete: if request.auth != null && userIsMerchantAdmin(merchantId);
+      allow write, read, delete: if userIsMerchantAdmin(merchantId);
+    }
+
+    match /application/{config} {
+      allow read: if userIsAuthenticated();
     }
   }
 }
