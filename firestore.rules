@@ -42,6 +42,10 @@ service cloud.firestore {
       allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
     }
 
+    match /merchants/{merchantId}/order_reviews/{allPages=**} {
+      allow read: if userIsAuthenticated();
+    }
+
     match /users/{userId} {
       allow read, write: if userIsSignedUp() && userOwnsDoc(userId);
     }
