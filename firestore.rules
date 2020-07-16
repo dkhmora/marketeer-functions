@@ -25,11 +25,13 @@ service cloud.firestore {
     match /merchants/{merchantId} {
       allow read, write, delete: if userIsMerchantAdmin(merchantId);
       allow read: if userIsAuthenticated();
+      allow read: if userIsSignedUp();
     }
 
     match /merchant_items/{merchantId} {
       allow read, write, delete: if userIsMerchantAdmin(merchantId);
       allow read: if userIsAuthenticated();
+      allow read: if userIsSignedUp();
     }
 
     match /orders/{orderId} {
@@ -47,11 +49,11 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, write: if userIsSignedUp() && userOwnsDoc(userId);
+      allow read, write: if userOwnsDoc(userId);
     }
 
-    match /users_carts/{userId} {
-      allow read, write: if userIsSignedUp() && userOwnsDoc(userId);
+    match /user_carts/{userId} {
+      allow read, write: if userOwnsDoc(userId);
     }
 
     match /application/{config} {
