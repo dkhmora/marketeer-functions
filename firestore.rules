@@ -14,7 +14,7 @@ service cloud.firestore {
       return userIsAuthenticated() && get(/databases/$(database)/documents/merchant_admins/$(merchantId)).data[userId()] == true;
     }
 
-    function userHasPhoneNumber() {
+    function userIsSignedUp() {
       return userIsAuthenticated() && request.auth.token.phone_number;
     }
 
@@ -28,39 +28,26 @@ service cloud.firestore {
     }
 
     match /merchant_items/{merchantId} {
-      allow write, delete: if userIsMerchantAdmin(merchantId);
+      allow read, write, delete: if userIsMerchantAdmin(merchantId);
       allow read: if userIsAuthenticated();
-    }
-
-    match /merchant_admins/{merchantId} {
-      allow read: if userIsAuthenticated() && resource.data.get(request.auth.uid, 0) == true;
     }
 
     match /orders/{orderId} {
       allow read, write: if userIsMerchantAdmin(resource.data.merchantId);
-      allow read: if userOwnsDoc(resource.data.userId);
-    }
-
-    match /order_chats/{orderId} {
-      allow read, write: if userIsMerchantAdmin(resource.data.merchantId);
-      allow read, write: if userOwnsDoc(resource.data.userId);
+      allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
     }
 
     match /order_items/{orderId} {
       allow read, write: if userIsMerchantAdmin(resource.data.merchantId);
-      allow read, write: if userOwnsDoc(resource.data.userId);
+      allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
     }
 
     match /users/{userId} {
-      allow read, write: if userOwnsDoc(userId)
+      allow read, write: if userIsSignedUp() && userOwnsDoc(userId);
     }
 
     match /users_carts/{userId} {
-      allow read, write: if userOwnsDoc(userId)
-    }
-
-    match /merchant_fcm/{merchantId} {
-      allow write, read, delete: if userIsMerchantAdmin(merchantId);
+      allow read, write: if userIsSignedUp() && userOwnsDoc(userId);
     }
 
     match /application/{config} {
