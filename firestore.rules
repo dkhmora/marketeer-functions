@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     function userIsMerchantAdmin(merchantId) {
-      return userIsAuthenticated() && get(/databases/$(database)/documents/merchant_admins/$(merchantId)).data[userId()] == true;
+      return userIsAuthenticated() && get(/databases/$(database)/documents/merchants/$(merchantId)).data.admins[userId()] == true;
     }
 
     function userIsSignedUp() {
@@ -23,7 +23,7 @@ service cloud.firestore {
     }
 
     match /merchants/{merchantId} {
-      allow read, write, delete: if userIsMerchantAdmin(merchantId);
+      allow read, update, delete: if userIsAuthenticated() && resource.data.admins[userId()] == true;
       allow read: if userIsAuthenticated();
       allow read: if userIsSignedUp();
     }
@@ -35,12 +35,12 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      allow read, write: if userIsMerchantAdmin(resource.data.merchantId);
+      allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
       allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
     }
 
     match /order_items/{orderId} {
-      allow read, write: if userIsMerchantAdmin(resource.data.merchantId);
+      allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
       allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
     }
 
