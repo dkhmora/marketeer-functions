@@ -15,7 +15,7 @@ service cloud.firestore {
     }
 
     function userIsSignedUp() {
-      return userIsAuthenticated() && request.auth.token.phone_number;
+      return userIsAuthenticated() && request.auth.token.phone_number != null;
     }
 
     function userOwnsDoc(ownerUserId) {

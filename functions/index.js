@@ -1,3 +1,4 @@
+/* eslint-disable promise/no-nesting */
 const functions = require("firebase-functions");
 const firebase = require("firebase");
 const admin = require("firebase-admin");
@@ -63,18 +64,9 @@ exports.updateMerchantCredits = functions
       }
 
       // Send notification to merchant if they have no more credits left
-      const merchantFcmRef = db.collection("merchant_fcm").doc(merchantId);
       let fcmTokens = [];
 
-      await merchantFcmRef
-        .get()
-        .then((document) => {
-          if (document.exists) {
-            return (fcmTokens = document.data().fcmTokens);
-          }
-          return null;
-        })
-        .catch((err) => console.log(err));
+      fcmTokens = merchantData.fcmTokens && merchantData.fcmTokens;
 
       const orderNotifications = [];
 
@@ -151,15 +143,14 @@ exports.placeOrder = functions
       deliveryAddress,
       userCoordinates,
       userName,
-      userPhoneNumber,
-      userId,
       storeCartItems,
       storeSelectedShipping,
       storeSelectedPaymentMethod,
-      orderStoreList,
     } = JSON.parse(orderInfo);
 
     const cartStores = storeCartItems ? [...Object.keys(storeCartItems)] : null;
+    const userId = context.auth.uid;
+    const userPhoneNumber = context.auth.token.phone_number;
 
     const orderStatus = {
       pending: {
@@ -188,12 +179,9 @@ exports.placeOrder = functions
       deliveryAddress === undefined ||
       userCoordinates === undefined ||
       userName === undefined ||
-      userPhoneNumber === undefined ||
-      userId === undefined ||
       storeCartItems === undefined ||
       storeSelectedShipping === undefined ||
-      storeSelectedPaymentMethod === undefined ||
-      orderStoreList === undefined
+      storeSelectedPaymentMethod === undefined
     ) {
       return { s: 400, m: "Bad argument: Incomplete request" };
     }
@@ -202,11 +190,7 @@ exports.placeOrder = functions
     const merchantIdRefs = {};
     const merchantItemsIdRefs = {};
 
-    cartStores.map((storeName) => {
-      const { merchantId } = orderStoreList.find(
-        (storeDetails) => storeDetails.storeName === storeName
-      );
-
+    cartStores.map((merchantId) => {
       merchantIdRefs[merchantId] = db.collection("merchants").doc(merchantId);
       merchantItemsIdRefs[merchantId] = db
         .collection("merchant_items")
@@ -269,11 +253,7 @@ exports.placeOrder = functions
             ? userData.orderNumber
             : 0;
 
-          await cartStores.map(async (storeName) => {
-            const { merchantId } = orderStoreList.find(
-              (storeDetails) => storeDetails.storeName === storeName
-            );
-
+          await cartStores.map(async (merchantId, index) => {
             const currentStoreItems = [...merchantItemsData[merchantId].items];
 
             const storeDetails = merchantData[merchantId];
@@ -285,9 +265,9 @@ exports.placeOrder = functions
             let quantity = 0;
             let totalAmount = 0;
 
-            const orderItems = storeCartItems[storeName];
-            const shipping = storeSelectedShipping[storeName];
-            const paymentMethod = storeSelectedPaymentMethod[storeName];
+            const orderItems = storeCartItems[merchantId];
+            const shipping = storeSelectedShipping[merchantId];
+            const paymentMethod = storeSelectedPaymentMethod[merchantId];
 
             orderItems.map((orderItem) => {
               quantity = orderItem.quantity + quantity;
@@ -304,7 +284,7 @@ exports.placeOrder = functions
               currentStoreItem.sales += orderItem.quantity;
 
               if (currentStoreItem.stock < 0) {
-                error = `Not enough stocks for item ${orderItem.name} from ${storeName}`;
+                error = `Not enough stocks for item ${orderItem.name} from ${merchantId}`;
                 return Promise.reject(new functions.https.HttpsError(error));
               }
             });
@@ -318,6 +298,7 @@ exports.placeOrder = functions
               userPhoneNumber,
               userId,
               createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
               orderStatus,
               quantity,
               totalAmount,
@@ -325,7 +306,7 @@ exports.placeOrder = functions
               merchantId,
               paymentMethod,
               merchantOrderNumber: currentMerchantOrderNumber + 1,
-              userOrderNumber: currentUserOrderNumber + 1,
+              userOrderNumber: currentUserOrderNumber + 1 + index,
             };
 
             const ordersRef = firestore().collection("orders");
@@ -335,9 +316,12 @@ exports.placeOrder = functions
             // Place order
             transaction.set(orderItemsRef.doc(id), {
               items: orderItems,
+              merchantId,
+              userId,
             });
             transaction.set(ordersRef.doc(id), {
               ...orderDetails,
+              messages: [],
             });
 
             // Update order number
@@ -345,10 +329,10 @@ exports.placeOrder = functions
               orderNumber: currentMerchantOrderNumber + 1,
             });
             transaction.update(userRef, {
-              orderNumber: currentUserOrderNumber + 1,
+              orderNumber: currentUserOrderNumber + 1 + index,
             });
 
-            // Update store item quantity
+            // Update store item quantities
             transaction.update(merchantItemsIdRefs[merchantId], {
               items: [...currentStoreItems],
             });
@@ -366,20 +350,11 @@ exports.placeOrder = functions
         // Send Order Notification to each Merchant
         return Object.entries(ordersStores).map(
           async ([merchantId, orderDetails]) => {
-            const merchantFcmRef = db
-              .collection("merchant_fcm")
-              .doc(merchantId);
             let fcmTokens = [];
 
-            await merchantFcmRef
-              .get()
-              .then((document) => {
-                if (document.exists) {
-                  return (fcmTokens = document.data().fcmTokens);
-                }
-                return null;
-              })
-              .catch((err) => console.log(err));
+            fcmTokens =
+              merchantData[merchantId].fcmTokens &&
+              merchantData[merchantId].fcmTokens;
 
             const { merchantOrderNumber, totalAmount } = orderDetails;
             const orderNotifications = [];
@@ -431,16 +406,13 @@ exports.addReview = functions
     try {
       return db.runTransaction(async (transaction) => {
         const orderRef = db.collection("orders").doc(orderId);
-        const merchantRef = db.collection("merchants").doc(merchantId);
         let orderReviewPage = 0;
         let newRatingAverage = 0;
+        let merchantId;
 
         await transaction
-          .getAll(orderRef, merchantRef)
-          .then((documents) => {
-            const orderDoc = documents[0];
-            const merchantDoc = documents[1];
-
+          .get(orderRef)
+          .then((document) => {
             const review = {
               reviewTitle,
               reviewBody,
@@ -451,65 +423,80 @@ exports.addReview = functions
               createdAt: new Date().toISOString(),
             };
 
-            if (orderDoc.exists) {
-              if (orderDoc.data().reviewed) {
+            if (document.exists) {
+              if (document.data().reviewed) {
                 return Promise.reject(
                   new Error("The order is already reviewed")
                 );
               } else {
-                transaction.update(orderDoc.ref, { reviewed: true });
+                transaction.update(document.ref, { reviewed: true });
+
+                merchantId = document.data();
               }
             }
 
-            if (merchantDoc.exists) {
-              const { reviewNumber, ratingAverage } = merchantDoc.data();
-              console.log("merchantDoc.exists");
+            const merchantRef = db.collection("merchants").doc(merchantId);
 
-              if (reviewNumber && ratingAverage) {
-                orderReviewPage = Math.floor(reviewNumber / 2000);
+            transaction
+              .get(merchantRef)
+              .then((document) => {
+                if (document.exists) {
+                  const { reviewNumber, ratingAverage } = document.data();
+                  console.log("merchantDoc.exists");
 
-                if (orderReviewPage <= 0) {
-                  orderReviewPage = 1;
+                  if (reviewNumber && ratingAverage) {
+                    orderReviewPage = Math.floor(reviewNumber / 2000);
+
+                    if (orderReviewPage <= 0) {
+                      orderReviewPage = 1;
+                    }
+
+                    newRatingAverage = (ratingAverage + rating) / 2;
+
+                    const orderReviewPageRef = db
+                      .collection("merchants")
+                      .doc(merchantId)
+                      .collection("order_reviews")
+                      .doc(`${orderReviewPage}`);
+
+                    console.log("update");
+
+                    transaction.update(orderReviewPageRef, {
+                      reviews: firestore.FieldValue.arrayUnion(review),
+                    });
+
+                    return { s: 200, m: "Review placed!" };
+                  } else {
+                    newRatingAverage = rating;
+
+                    console.log("set");
+
+                    const firstOrderReviewPageRef = db
+                      .collection("merchants")
+                      .doc(merchantId)
+                      .collection("order_reviews")
+                      .doc("1");
+
+                    transaction.set(firstOrderReviewPageRef, {
+                      reviews: [review],
+                    });
+                  }
+
+                  transaction.update(merchantRef, {
+                    reviewNumber: firestore.FieldValue.increment(1),
+                    ratingAverage: newRatingAverage,
+                  });
+
+                  console.log(orderReviewPage);
+
+                  return { s: 200, m: "Review placed!" };
+                } else {
+                  return { s: 500, m: "Error, merchant was not found" };
                 }
-
-                newRatingAverage = (ratingAverage + rating) / 2;
-
-                const orderReviewPageRef = db
-                  .collection("merchants")
-                  .doc(merchantId)
-                  .collection("order_reviews")
-                  .doc(`${orderReviewPage}`);
-
-                console.log("update");
-
-                transaction.update(orderReviewPageRef, {
-                  reviews: firestore.FieldValue.arrayUnion(review),
-                });
-              } else {
-                newRatingAverage = rating;
-
-                console.log("set");
-
-                const firstOrderReviewPageRef = db
-                  .collection("merchants")
-                  .doc(merchantId)
-                  .collection("order_reviews")
-                  .doc("1");
-
-                transaction.set(firstOrderReviewPageRef, {
-                  reviews: [review],
-                });
-              }
-
-              transaction.update(merchantRef, {
-                reviewNumber: firestore.FieldValue.increment(1),
-                ratingAverage: newRatingAverage,
+              })
+              .catch((err) => {
+                console.log(err);
               });
-
-              console.log(orderReviewPage);
-            } else {
-              return { s: 500, m: "Error, merchant was not found" };
-            }
 
             return { s: 200, m: "Review placed!" };
           })
