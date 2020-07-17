@@ -155,7 +155,7 @@ exports.placeOrder = functions
     const orderStatus = {
       pending: {
         status: true,
-        updatedAt: new Date().toISOString(),
+        updatedAt: firestore.Timestamp.now().toMillis(),
       },
       unpaid: {
         status: false,
@@ -297,8 +297,8 @@ exports.placeOrder = functions
               userName,
               userPhoneNumber,
               userId,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
+              createdAt: firestore.Timestamp.now().toMillis(),
+              updatedAt: firestore.Timestamp.now().toMillis(),
               orderStatus,
               quantity,
               totalAmount,
@@ -397,8 +397,6 @@ exports.addReview = functions
     const userId = context.auth.uid;
     const userName = context.auth.token.name || null;
 
-    console.log(data);
-
     if (orderId === undefined || rating === undefined) {
       return { s: 400, m: "Bad argument: Incomplete data" };
     }
@@ -406,13 +404,16 @@ exports.addReview = functions
     try {
       return db.runTransaction(async (transaction) => {
         const orderRef = db.collection("orders").doc(orderId);
+        const merchantRef = db.collection("merchants").doc(merchantId);
         let orderReviewPage = 0;
         let newRatingAverage = 0;
-        let merchantId;
 
         await transaction
-          .get(orderRef)
-          .then((document) => {
+          .getAll(orderRef, merchantRef)
+          .then((documents) => {
+            const orderDoc = documents[0];
+            const merchantDoc = documents[1];
+
             const review = {
               reviewTitle,
               reviewBody,
@@ -423,80 +424,60 @@ exports.addReview = functions
               createdAt: new Date().toISOString(),
             };
 
-            if (document.exists) {
-              if (document.data().reviewed) {
+            if (orderDoc.exists) {
+              if (orderDoc.data().reviewed) {
                 return Promise.reject(
                   new Error("The order is already reviewed")
                 );
+              } else if (orderDoc.data().merchantId !== merchantId) {
+                return Promise.reject(new Error("Merchant Ids do not match"));
               } else {
-                transaction.update(document.ref, { reviewed: true });
-
-                merchantId = document.data();
+                transaction.update(orderDoc.ref, { reviewed: true });
               }
             }
 
-            const merchantRef = db.collection("merchants").doc(merchantId);
+            if (merchantDoc.exists) {
+              const { reviewNumber, ratingAverage } = merchantDoc.data();
 
-            transaction
-              .get(merchantRef)
-              .then((document) => {
-                if (document.exists) {
-                  const { reviewNumber, ratingAverage } = document.data();
-                  console.log("merchantDoc.exists");
+              if (reviewNumber && ratingAverage) {
+                orderReviewPage = Math.floor(reviewNumber / 2000);
 
-                  if (reviewNumber && ratingAverage) {
-                    orderReviewPage = Math.floor(reviewNumber / 2000);
-
-                    if (orderReviewPage <= 0) {
-                      orderReviewPage = 1;
-                    }
-
-                    newRatingAverage = (ratingAverage + rating) / 2;
-
-                    const orderReviewPageRef = db
-                      .collection("merchants")
-                      .doc(merchantId)
-                      .collection("order_reviews")
-                      .doc(`${orderReviewPage}`);
-
-                    console.log("update");
-
-                    transaction.update(orderReviewPageRef, {
-                      reviews: firestore.FieldValue.arrayUnion(review),
-                    });
-
-                    return { s: 200, m: "Review placed!" };
-                  } else {
-                    newRatingAverage = rating;
-
-                    console.log("set");
-
-                    const firstOrderReviewPageRef = db
-                      .collection("merchants")
-                      .doc(merchantId)
-                      .collection("order_reviews")
-                      .doc("1");
-
-                    transaction.set(firstOrderReviewPageRef, {
-                      reviews: [review],
-                    });
-                  }
-
-                  transaction.update(merchantRef, {
-                    reviewNumber: firestore.FieldValue.increment(1),
-                    ratingAverage: newRatingAverage,
-                  });
-
-                  console.log(orderReviewPage);
-
-                  return { s: 200, m: "Review placed!" };
-                } else {
-                  return { s: 500, m: "Error, merchant was not found" };
+                if (orderReviewPage <= 0) {
+                  orderReviewPage = 1;
                 }
-              })
-              .catch((err) => {
-                console.log(err);
+
+                newRatingAverage = (ratingAverage + rating) / 2;
+
+                const orderReviewPageRef = db
+                  .collection("merchants")
+                  .doc(merchantId)
+                  .collection("order_reviews")
+                  .doc(`${orderReviewPage}`);
+
+                transaction.update(orderReviewPageRef, {
+                  reviews: firestore.FieldValue.arrayUnion(review),
+                });
+              } else {
+                newRatingAverage = rating;
+
+                const firstOrderReviewPageRef = db
+                  .collection("merchants")
+                  .doc(merchantId)
+                  .collection("order_reviews")
+                  .doc("1");
+
+                transaction.set(firstOrderReviewPageRef, {
+                  reviews: [review],
+                });
+              }
+
+              transaction.update(merchantRef, {
+                reviewNumber: firestore.FieldValue.increment(1),
+                ratingAverage: newRatingAverage,
               });
+            } else {
+              return { s: 500, m: "Error, merchant was not found" };
+            }
 
             return { s: 200, m: "Review placed!" };
           })
