@@ -352,22 +352,24 @@ exports.placeOrder = functions
           async ([merchantId, orderDetails]) => {
             let fcmTokens = [];
 
-            fcmTokens =
-              merchantData[merchantId].fcmTokens &&
-              merchantData[merchantId].fcmTokens;
+            fcmTokens = merchantData[merchantId].fcmTokens && [
+              ...merchantData[merchantId].fcmTokens,
+            ];
 
             const { merchantOrderNumber, totalAmount } = orderDetails;
             const orderNotifications = [];
 
-            fcmTokens.map((token) => {
-              orderNotifications.push({
-                notification: {
-                  title: "You've got a new order!",
-                  body: `Order # ${merchantOrderNumber}; Total Amount: ${totalAmount}`,
-                },
-                token,
+            if (fcmTokens) {
+              fcmTokens.map((token) => {
+                orderNotifications.push({
+                  notification: {
+                    title: "You've got a new order!",
+                    body: `Order # ${merchantOrderNumber}; Total Amount: ${totalAmount}`,
+                  },
+                  token,
+                });
               });
-            });
+            }
 
             return orderNotifications.length > 0
               ? await admin.messaging().sendAll(orderNotifications)
