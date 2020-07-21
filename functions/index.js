@@ -99,19 +99,20 @@ exports.changeOrderStatus = functions
 
           newOrderStatus = orderStatus;
 
+          const nowTimestamp = firestore.Timestamp.now().toMillis();
+
           newOrderStatus[`${currentOrderStatus}`] = {
             status: false,
-            updatedAt: firestore.Timestamp.now().toMillis(),
           };
 
           newOrderStatus[`${nextStatus}`] = {
             status: true,
-            updatedAt: firestore.Timestamp.now().toMillis(),
+            updatedAt: nowTimestamp,
           };
 
           transaction.update(orderRef, {
             orderStatus: newOrderStatus,
-            updatedAt: firestore.Timestamp.now().toMillis(),
+            updatedAt: nowTimestamp,
           });
 
           if (nextStatus === "shipped") {
