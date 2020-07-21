@@ -33,63 +33,6 @@ exports.signInWithPhoneAndPassword = functions
     return { s: 200, t: token };
   });
 
-exports.updateMerchantCredits = functions
-  .region("asia-northeast1")
-  .firestore.document("/orders/{orderId}")
-  .onUpdate(async (snap, context) => {
-    return db.runTransaction(async (transaction) => {
-      const orderData = snap.after.data();
-      const { totalAmount, merchantId, orderStatus } = orderData;
-      const merchantRef = db.collection("merchants").doc(merchantId);
-
-      const merchantData = await transaction
-        .get(merchantRef)
-        .then((document) => {
-          return document.data();
-        });
-
-      // Calculate transaction fee and subtract it from current credit data
-      const { creditData } = merchantData;
-      const { credits, creditThreshold, transactionFeePercentage } = creditData;
-      const transactionFee =
-        Math.round(totalAmount * transactionFeePercentage) / 100;
-      const newCredits = credits - transactionFee;
-      const newCreditThresholdReached =
-        newCredits < creditThreshold ? true : false;
-
-      if (orderStatus.shipped.status) {
-        transaction.update(merchantRef, {
-          ["creditData.credits"]: newCredits,
-          ["creditData.creditThresholdReached"]: newCreditThresholdReached,
-        });
-      }
-
-      // Send notification to merchant if they have no more credits left
-      let fcmTokens = [];
-
-      fcmTokens = merchantData.fcmTokens && merchantData.fcmTokens;
-
-      const orderNotifications = [];
-
-      if (newCreditThresholdReached) {
-        fcmTokens.map((token) => {
-          orderNotifications.push({
-            notification: {
-              title: "WARNING: You've run out of credits!",
-              body: `"Please top up in order to receive more orders.
-                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
-            },
-            token,
-          });
-        });
-      }
-
-      return orderNotifications.length > 0 && fcmTokens.length > 0
-        ? await admin.messaging().sendAll(orderNotifications)
-        : null;
-    });
-  });
-
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
@@ -134,7 +77,7 @@ exports.changeOrderStatus = functions
           return;
         });
 
-        const { orderStatus, paymentMethod } = orderData;
+        const { orderStatus, paymentMethod, totalAmount } = orderData;
 
         let currentOrderStatus = null;
         let newOrderStatus = {};
@@ -143,8 +86,6 @@ exports.changeOrderStatus = functions
           if (orderStatus[`${item}`].status) {
             currentOrderStatus = item;
           }
-
-          return null;
         });
 
         if (currentOrderStatus) {
@@ -172,6 +113,61 @@ exports.changeOrderStatus = functions
             orderStatus: newOrderStatus,
             updatedAt: firestore.Timestamp.now().toMillis(),
           });
+
+          if (nextStatus === "shipped") {
+            const { creditData } = merchantData;
+            const {
+              credits,
+              creditThreshold,
+              transactionFeePercentage,
+            } = creditData;
+            const transactionFee =
+              Math.round(totalAmount * transactionFeePercentage) / 100;
+            const newCredits = credits - transactionFee;
+            const newCreditThresholdReached =
+              newCredits < creditThreshold ? true : false;
+
+            transaction.update(merchantRef, {
+              ["creditData.credits"]: newCredits,
+              ["creditData.creditThresholdReached"]: newCreditThresholdReached,
+            });
+
+            let fcmTokens = [];
+
+            fcmTokens = merchantData.fcmTokens && merchantData.fcmTokens;
+
+            const orderNotifications = [];
+
+            if (newCreditThresholdReached) {
+              fcmTokens.map((token) => {
+                orderNotifications.push({
+                  notification: {
+                    title: "WARNING: You've run out of Markee credits!",
+                    body: `"Please top up in order to receive more orders.
+                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
+                  },
+                  token,
+                });
+              });
+            }
+
+            if (newCredits <= creditThreshold * 2) {
+              fcmTokens.map((token) => {
+                orderNotifications.push({
+                  notification: {
+                    title: `WARNING: You only have ${newCredits} Markee credits left!`,
+                    body: `"Please top up before reaching your Markee credit threshold limit of ${creditThreshold} in order to receive more orders.
+                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
+                  },
+                  token,
+                });
+              });
+            }
+
+            orderNotifications.length > 0 && fcmTokens.length > 0
+              ? await admin.messaging().sendAll(orderNotifications)
+              : null;
+          }
 
           return { s: 200, m: "Successfully changed order status" };
         } else {
