@@ -143,12 +143,10 @@ exports.placeOrder = functions
       deliveryAddress,
       userCoordinates,
       userName,
-      storeCartItems,
       storeSelectedShipping,
       storeSelectedPaymentMethod,
     } = JSON.parse(orderInfo);
 
-    const cartStores = storeCartItems ? [...Object.keys(storeCartItems)] : null;
     const userId = context.auth.uid;
     const userPhoneNumber = context.auth.token.phone_number;
 
@@ -174,19 +172,12 @@ exports.placeOrder = functions
       },
     };
 
-    if (
-      deliveryCoordinates === undefined ||
-      deliveryAddress === undefined ||
-      userCoordinates === undefined ||
-      userName === undefined ||
-      storeCartItems === undefined ||
-      storeSelectedShipping === undefined ||
-      storeSelectedPaymentMethod === undefined
-    ) {
-      return { s: 400, m: "Bad argument: Incomplete request" };
-    }
-
     const userRef = db.collection("users").doc(userId);
+    const userCartRef = db.collection('user_carts').doc(userId);
+
+    const storeCartItems = (await userCartRef.get()).data();
+    const cartStores = storeCartItems ? [...Object.keys(storeCartItems)] : null;
+
     const merchantIdRefs = {};
     const merchantItemsIdRefs = {};
 
@@ -199,6 +190,18 @@ exports.placeOrder = functions
 
     const merchantRefs = Object.values(merchantIdRefs);
     const merchantItemsRefs = Object.values(merchantItemsIdRefs);
+
+    if (
+      deliveryCoordinates === undefined ||
+      deliveryAddress === undefined ||
+      userCoordinates === undefined ||
+      userName === undefined ||
+      storeCartItems === undefined ||
+      storeSelectedShipping === undefined ||
+      storeSelectedPaymentMethod === undefined
+    ) {
+      return { s: 400, m: "Bad argument: Incomplete request" };
+    }
 
     let merchantData = {};
     let merchantItemsData = {};
@@ -339,8 +342,6 @@ exports.placeOrder = functions
 
             ordersStores[merchantId] = orderDetails;
           });
-
-          const userCartRef = firestore().collection("user_carts").doc(userId);
 
           transaction.set(userCartRef, {});
         },
