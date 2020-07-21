@@ -179,6 +179,83 @@ exports.changeOrderStatus = functions
     }
   });
 
+exports.cancelOrder = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { orderId, merchantId, cancelReason } = data;
+    const userId = context.auth.uid;
+
+    if (orderId === undefined || cancelReason === undefined) {
+      return { s: 400, m: "Bad argument: Incomplete Information" };
+    }
+
+    try {
+      let orderData, merchantData;
+
+      return db.runTransaction(async (transaction) => {
+        const orderRef = firestore().collection("orders").doc(orderId);
+        const merchantRef = firestore().collection("merchants").doc(merchantId);
+
+        await transaction.getAll(orderRef, merchantRef).then((documents) => {
+          const orderDoc = documents[0];
+          const merchantDoc = documents[1];
+
+          orderData = orderDoc.data();
+          merchantData = merchantDoc.data();
+
+          if (!merchantDoc.data().admins[userId] === true) {
+            throw new Error("User is not merchant admin");
+          }
+
+          if (orderDoc.data().merchantId !== merchantDoc.id) {
+            throw new Error("Order does not correspond with merchant id");
+          }
+
+          return;
+        });
+
+        const { orderStatus } = orderData;
+
+        let newOrderStatus = {};
+        let currentStatus;
+
+        Object.keys(orderStatus).map((item, index) => {
+          if (orderStatus[`${item}`].status) {
+            currentStatus = item;
+          }
+        });
+
+        if (currentStatus !== "pending") {
+          return {
+            s: 400,
+            m: "Error: Order is not pending, and thus cannot be cancelled",
+          };
+        }
+
+        newOrderStatus = orderStatus;
+
+        newOrderStatus[`${currentStatus}`].status = false;
+
+        const nowTimestamp = firestore.Timestamp.now().toMillis();
+
+        newOrderStatus.cancelled = {
+          status: true,
+          reason: cancelReason,
+          updatedAt: nowTimestamp,
+        };
+
+        transaction.update(orderRef, {
+          orderStatus: newOrderStatus,
+          updatedAt: nowTimestamp,
+        });
+
+        return { s: 200, m: "Order successfully cancelled!" };
+      });
+    } catch (e) {
+      return { s: 400, m: e };
+    }
+  });
+
 exports.getAddressFromCoordinates = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
