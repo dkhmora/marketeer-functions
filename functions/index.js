@@ -50,8 +50,9 @@ exports.updateMerchantCredits = functions
 
       // Calculate transaction fee and subtract it from current credit data
       const { creditData } = merchantData;
-      const { credits, creditThreshold } = creditData;
-      const transactionFee = totalAmount * 0.05;
+      const { credits, creditThreshold, transactionFeePercentage } = creditData;
+      const transactionFee =
+        Math.round(totalAmount * transactionFeePercentage) / 100;
       const newCredits = credits - transactionFee;
       const newCreditThresholdReached =
         newCredits < creditThreshold ? true : false;
@@ -87,6 +88,99 @@ exports.updateMerchantCredits = functions
         ? await admin.messaging().sendAll(orderNotifications)
         : null;
     });
+  });
+
+exports.changeOrderStatus = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { orderId, merchantId } = data;
+    const userId = context.auth.uid;
+
+    if (orderId === undefined) {
+      return { s: 400, m: "Bad argument: Order ID not found" };
+    }
+
+    const statusArray = [
+      "pending",
+      "unpaid",
+      "paid",
+      "shipped",
+      "completed",
+      "cancelled",
+    ];
+
+    const orderRef = firestore().collection("orders").doc(orderId);
+    const merchantRef = firestore().collection("merchants").doc(merchantId);
+
+    try {
+      return db.runTransaction(async (transaction) => {
+        let orderData, merchantData;
+
+        await transaction.getAll(orderRef, merchantRef).then((documents) => {
+          const orderDoc = documents[0];
+          const merchantDoc = documents[1];
+
+          orderData = orderDoc.data();
+          merchantData = merchantDoc.data();
+
+          if (!merchantDoc.data().admins[userId] === true) {
+            throw new Error("User is not merchant admin");
+          }
+
+          if (orderDoc.data().merchantId !== merchantDoc.id) {
+            throw new Error("Order does not correspond with merchant id");
+          }
+
+          return;
+        });
+
+        const { orderStatus, paymentMethod } = orderData;
+
+        let currentOrderStatus = null;
+        let newOrderStatus = {};
+
+        Object.keys(orderStatus).map((item, index) => {
+          if (orderStatus[`${item}`].status) {
+            currentOrderStatus = item;
+          }
+
+          return null;
+        });
+
+        if (currentOrderStatus) {
+          let nextStatusIndex = statusArray.indexOf(currentOrderStatus) + 1;
+
+          if (paymentMethod === "COD" && currentOrderStatus === "pending") {
+            nextStatusIndex = 2;
+          }
+
+          const nextStatus = statusArray[nextStatusIndex];
+
+          newOrderStatus = orderStatus;
+
+          newOrderStatus[`${currentOrderStatus}`] = {
+            status: false,
+            updatedAt: firestore.Timestamp.now().toMillis(),
+          };
+
+          newOrderStatus[`${nextStatus}`] = {
+            status: true,
+            updatedAt: firestore.Timestamp.now().toMillis(),
+          };
+
+          transaction.update(orderRef, {
+            orderStatus: newOrderStatus,
+            updatedAt: firestore.Timestamp.now().toMillis(),
+          });
+
+          return { s: 200, m: "Successfully changed order status" };
+        } else {
+          throw new Error("No order status");
+        }
+      });
+    } catch (e) {
+      return { s: 400, m: `Error, something went wrong: ${e}` };
+    }
   });
 
 exports.getAddressFromCoordinates = functions
@@ -173,7 +267,7 @@ exports.placeOrder = functions
     };
 
     const userRef = db.collection("users").doc(userId);
-    const userCartRef = db.collection('user_carts').doc(userId);
+    const userCartRef = db.collection("user_carts").doc(userId);
 
     const storeCartItems = (await userCartRef.get()).data();
     const cartStores = storeCartItems ? [...Object.keys(storeCartItems)] : null;
