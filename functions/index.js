@@ -445,7 +445,7 @@ exports.placeOrder = functions
               totalAmount = orderItem.price * orderItem.quantity + totalAmount;
 
               const currentStoreItemIndex = currentStoreItems.findIndex(
-                (storeItem) => storeItem.name === orderItem.name
+                (storeItem) => storeItem.itemId === orderItem.itemId
               );
 
               const currentStoreItem = currentStoreItems[currentStoreItemIndex];
@@ -658,5 +658,63 @@ exports.addReview = functions
       });
     } catch (e) {
       return { s: 400, m: e };
+    }
+  });
+
+exports.setMerchantAdminToken = functions
+  .region("asia-northeast1")
+  .firestore.document("merchant_admins/{merchantId}")
+  .onWrite(async (change, context) => {
+    const newData = change.after.exists ? change.after.data() : null;
+    const previousData = change.before.data();
+    const newDataLength = newData ? Object.keys(newData).length : null;
+    const previousDataLength = Object.keys(previousData).length;
+
+    const merchantId = context.params.merchantId;
+
+    if (newData && newDataLength >= previousDataLength) {
+      Object.entries(newData).map(async ([userId, value]) => {
+        if (value === false) {
+          return await admin
+            .auth()
+            .setCustomUserClaims(userId, { [merchantId]: true })
+            .then(async () => {
+              await firestore()
+                .collection("merchant_admins")
+                .doc(merchantId)
+                .update({
+                  [userId]: true,
+                })
+                .catch((err) => {
+                  return functions.logger.error(err);
+                });
+
+              return functions.logger.log(
+                `Added ${merchantId} token to ${userId}`
+              );
+            })
+            .catch((err) => {
+              return functions.logger.error(err);
+            });
+        } else {
+          functions.logger.log(`${userId} already set`);
+        }
+      });
+    } else if (previousData && newDataLength < previousDataLength) {
+      Object.entries(previousData).map(async ([userId, value]) => {
+        if (!Object.keys(newData).includes(userId)) {
+          return await admin
+            .auth()
+            .setCustomUserClaims(userId, null)
+            .then(() => {
+              return functions.logger.log(
+                `Removed ${merchantId} token from ${userId}`
+              );
+            })
+            .catch((err) => {
+              return functions.logger.error(err);
+            });
+        }
+      });
     }
   });
