@@ -677,7 +677,7 @@ exports.setMerchantAdminToken = functions
         if (value === false) {
           return await admin
             .auth()
-            .setCustomUserClaims(userId, { [merchantId]: true })
+            .setCustomUserClaims(userId, { merchantId })
             .then(async () => {
               await firestore()
                 .collection("merchant_admins")
