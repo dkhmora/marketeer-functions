@@ -36,8 +36,13 @@ exports.signInWithPhoneAndPassword = functions
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { orderId, merchantId } = data;
+    const { orderId } = data;
     const userId = context.auth.uid;
+    const merchantId = context.auth.token.merchantId;
+
+    if (!userId || !merchantId) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
 
     if (orderId === undefined) {
       return { s: 400, m: "Bad argument: Order ID not found" };
@@ -183,8 +188,13 @@ exports.changeOrderStatus = functions
 exports.cancelOrder = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { orderId, merchantId, cancelReason } = data;
+    const { orderId, cancelReason } = data;
     const userId = context.auth.uid;
+    const merchantId = context.auth.token.merchantId;
+
+    if (!userId || !merchantId) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
 
     if (orderId === undefined || cancelReason === undefined) {
       return { s: 400, m: "Bad argument: Incomplete Information" };
@@ -263,6 +273,10 @@ exports.getAddressFromCoordinates = functions
     const { latitude, longitude } = data;
     let locationDetails = null;
 
+    if (!context.auth.uid) {
+      return { s: 400, m: "Error: User is not authenticated" };
+    }
+
     if (latitude === undefined || longitude === undefined) {
       return { s: 400, m: "Bad argument: Incomplete coordinates" };
     }
@@ -317,6 +331,10 @@ exports.placeOrder = functions
 
     const userId = context.auth.uid;
     const userPhoneNumber = context.auth.token.phone_number;
+
+    if (!userId || !userPhoneNumber) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
 
     const orderStatus = {
       pending: {
@@ -567,6 +585,11 @@ exports.addReview = functions
     const { orderId, merchantId, reviewTitle, reviewBody, rating } = data;
     const userId = context.auth.uid;
     const userName = context.auth.token.name || null;
+    const userPhoneNumber = context.auth.token.phone_number;
+
+    if (!userId || !userPhoneNumber) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
 
     if (orderId === undefined || rating === undefined) {
       return { s: 400, m: "Bad argument: Incomplete data" };
