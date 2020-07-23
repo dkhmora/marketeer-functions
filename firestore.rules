@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     function userIsMerchantAdmin(merchantId) {
-      return userIsAuthenticated() && get(/databases/$(database)/documents/merchants/$(merchantId)).data.admins[userId()] == true;
+      return userIsAuthenticated() && request.auth.token.merchantId == merchantId;
     }
 
     function userIsSignedUp() {
