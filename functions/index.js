@@ -684,6 +684,89 @@ exports.addReview = functions
     }
   });
 
+exports.addStoreItem = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { item } = data;
+    const merchantId = context.auth.token.merchantId || null;
+
+    if (!merchantId) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
+
+    if (item === undefined) {
+      return { s: 400, m: "Bad argument: Incomplete data" };
+    }
+
+    const merchantItemsRef = db
+      .collection("merchants")
+      .doc(merchantId)
+      .collection("items");
+
+    try {
+      let newItem = JSON.parse(item);
+      let merchantItemsDocId = null;
+
+      functions.logger.log(merchantId);
+
+      await merchantItemsRef
+        .where("itemNumber", "<", 1500)
+        .orderBy("itemNumber", "desc")
+        .limit(1)
+        .get()
+        .then((querySnapshot) => {
+          if (!querySnapshot.empty) {
+            querySnapshot.forEach((doc, index) => {
+              merchantItemsDocId = doc.id;
+            });
+
+            return functions.logger.log("exist");
+          }
+
+          return functions.logger.log("does not exist");
+        });
+
+      functions.logger.log(merchantItemsDocId);
+
+      if (merchantItemsDocId) {
+        const merchantItemsDoc = db
+          .collection("merchants")
+          .doc(merchantId)
+          .collection("items")
+          .doc(merchantItemsDocId);
+
+        newItem.doc = merchantItemsDocId;
+
+        return await merchantItemsDoc
+          .update({
+            items: firestore.FieldValue.arrayUnion(newItem),
+            itemNumber: firestore.FieldValue.increment(1),
+            updatedAt: newItem.updatedAt,
+          })
+          .then(() => {
+            return { s: 200, m: "Item Added!" };
+          });
+      } else {
+        const initialMerchantItemsRef = merchantItemsRef.doc();
+        newItem.doc = initialMerchantItemsRef.id;
+
+        return await merchantItemsRef
+          .doc(initialMerchantItemsRef.id)
+          .set({
+            items: [newItem],
+            itemNumber: 1,
+            updatedAt: newItem.updatedAt,
+            createdAt: newItem.createdAt,
+          })
+          .then(() => {
+            return { s: 200, m: "Item Added!" };
+          });
+      }
+    } catch (e) {
+      return { s: 400, m: e };
+    }
+  });
+
 exports.setMerchantAdminToken = functions
   .region("asia-northeast1")
   .firestore.document("merchant_admins/{merchantId}")
