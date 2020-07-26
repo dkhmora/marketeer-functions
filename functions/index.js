@@ -4,6 +4,9 @@ const firebase = require("firebase");
 const admin = require("firebase-admin");
 const { firestore } = require("firebase-admin");
 const { FB_CONFIG, HERE_API_KEY } = require("./config");
+const { resolve } = require("path");
+const { rejects } = require("assert");
+const { HttpsError } = require("firebase-functions/lib/providers/https");
 
 admin.initializeApp();
 
@@ -336,228 +339,244 @@ exports.placeOrder = functions
       return { s: 400, m: "Error: User is not authorized" };
     }
 
-    const userRef = db.collection("users").doc(userId);
-    const userCartRef = db.collection("user_carts").doc(userId);
+    try {
+      const userRef = db.collection("users").doc(userId);
+      const userCartRef = db.collection("user_carts").doc(userId);
 
-    const storeCartItems = (await userCartRef.get()).data();
-    const cartStores = storeCartItems ? [...Object.keys(storeCartItems)] : null;
+      const storeCartItems = (await userCartRef.get()).data();
+      const cartStores = storeCartItems
+        ? [...Object.keys(storeCartItems)]
+        : null;
 
-    if (
-      deliveryCoordinates === undefined ||
-      deliveryAddress === undefined ||
-      userCoordinates === undefined ||
-      userName === undefined ||
-      storeCartItems === undefined ||
-      storeSelectedShipping === undefined ||
-      storeSelectedPaymentMethod === undefined
-    ) {
-      return { s: 400, m: "Bad argument: Incomplete request" };
-    }
+      if (
+        deliveryCoordinates === undefined ||
+        deliveryAddress === undefined ||
+        userCoordinates === undefined ||
+        userName === undefined ||
+        storeCartItems === undefined ||
+        storeSelectedShipping === undefined ||
+        storeSelectedPaymentMethod === undefined
+      ) {
+        return { s: 400, m: "Bad argument: Incomplete request" };
+      }
 
-    const orderStatus = {
-      pending: {
-        status: true,
-        updatedAt: firestore.Timestamp.now().toMillis(),
-      },
-      unpaid: {
-        status: false,
-      },
-      paid: {
-        status: false,
-      },
-      shipped: {
-        status: false,
-      },
-      completed: {
-        status: false,
-      },
-      cancelled: {
-        status: false,
-      },
-    };
+      const orderStatus = {
+        pending: {
+          status: true,
+          updatedAt: firestore.Timestamp.now().toMillis(),
+        },
+        unpaid: {
+          status: false,
+        },
+        paid: {
+          status: false,
+        },
+        shipped: {
+          status: false,
+        },
+        completed: {
+          status: false,
+        },
+        cancelled: {
+          status: false,
+        },
+      };
 
-    cartStores.map(async (merchantId) => {
-      return await db
-        .runTransaction(async (transaction) => {
-          const merchantRef = db.collection("merchants").doc(merchantId);
-          const merchantItemDocs = [];
-          const merchantItemRefs = [];
+      return await Promise.all(
+        cartStores.map(async (merchantId) => {
+          return await db
+            .runTransaction(async (transaction) => {
+              const merchantRef = db.collection("merchants").doc(merchantId);
+              const merchantItemDocs = [];
+              const merchantItemRefs = [];
 
-          await storeCartItems[merchantId].map((item) => {
-            if (!merchantItemDocs.includes(item.doc)) {
-              const itemRef = db
-                .collection("merchants")
-                .doc(merchantId)
-                .collection("items")
-                .doc(item.doc);
+              await storeCartItems[merchantId].map((item) => {
+                if (!merchantItemDocs.includes(item.doc)) {
+                  const itemRef = db
+                    .collection("merchants")
+                    .doc(merchantId)
+                    .collection("items")
+                    .doc(item.doc);
 
-              merchantItemRefs.push(itemRef);
-              merchantItemDocs.push(item.doc);
-            }
-          });
-
-          const currentStoreItems = [];
-          let userData = {};
-          let storeDetails = {};
-
-          await transaction
-            .getAll(userRef, merchantRef, ...merchantItemRefs)
-            .then(async (documents) => {
-              const userDoc = documents[0];
-              const merchantDoc = documents[1];
-              const merchantItemsDocs = documents.slice(2, documents.length);
-
-              await merchantItemsDocs.map((merchantItemDoc) => {
-                currentStoreItems.push(...merchantItemDoc.data().items);
+                  merchantItemRefs.push(itemRef);
+                  merchantItemDocs.push(item.doc);
+                }
               });
 
-              if (userDoc.exists) {
-                userData = userDoc.data();
-              } else {
-                console.error("Error: User does not exist!");
+              const currentStoreItems = [];
+              let userData = {};
+              let storeDetails = {};
+
+              return await transaction
+                .getAll(userRef, merchantRef, ...merchantItemRefs)
+                .then(async (documents) => {
+                  const userDoc = documents[0];
+                  const merchantDoc = documents[1];
+                  const merchantItemsDocs = documents.slice(
+                    2,
+                    documents.length
+                  );
+
+                  await merchantItemsDocs.map((merchantItemDoc) => {
+                    currentStoreItems.push(...merchantItemDoc.data().items);
+                  });
+
+                  if (userDoc.exists) {
+                    userData = userDoc.data();
+                  } else {
+                    console.error("Error: User does not exist!");
+                  }
+
+                  if (merchantDoc.exists) {
+                    storeDetails = merchantDoc.data();
+                  } else {
+                    console.error("Error: User does not exist!");
+                  }
+
+                  const currentUserOrderNumber = userData.orderNumber
+                    ? userData.orderNumber
+                    : 0;
+
+                  const currentMerchantOrderNumber = storeDetails.orderNumber
+                    ? storeDetails.orderNumber
+                    : 0;
+
+                  let quantity = 0;
+                  let totalAmount = 0;
+
+                  const orderItems = storeCartItems[merchantId];
+                  const shipping = storeSelectedShipping[merchantId];
+                  const paymentMethod = storeSelectedPaymentMethod[merchantId];
+
+                  functions.logger.log("qwe", currentStoreItems);
+
+                  await orderItems.map((orderItem) => {
+                    quantity = orderItem.quantity + quantity;
+                    totalAmount =
+                      orderItem.price * orderItem.quantity + totalAmount;
+
+                    const currentStoreItemIndex = currentStoreItems.findIndex(
+                      (storeItem) => storeItem.itemId === orderItem.itemId
+                    );
+
+                    const currentStoreItem =
+                      currentStoreItems[currentStoreItemIndex];
+
+                    currentStoreItem.stock -= orderItem.quantity;
+
+                    currentStoreItem.sales += orderItem.quantity;
+
+                    if (currentStoreItem.stock < 0) {
+                      const error = `Not enough stocks for item "${orderItem.name}" from "${storeDetails.storeName}. Please update your cart."`;
+                      throw new Error(error);
+                    }
+                  });
+
+                  const timeStamp = firestore.Timestamp.now().toMillis();
+                  const newMerchantOrderNumber = currentMerchantOrderNumber + 1;
+                  const newUserOrderNumber = currentUserOrderNumber + 1;
+
+                  const orderDetails = {
+                    reviewed: false,
+                    userCoordinates,
+                    deliveryCoordinates,
+                    deliveryAddress,
+                    userName,
+                    userPhoneNumber,
+                    userId,
+                    createdAt: timeStamp,
+                    updatedAt: timeStamp,
+                    orderStatus,
+                    quantity,
+                    totalAmount,
+                    shipping,
+                    merchantId,
+                    paymentMethod,
+                    merchantOrderNumber: newMerchantOrderNumber,
+                    userOrderNumber: newUserOrderNumber,
+                  };
+
+                  const ordersRef = firestore().collection("orders");
+                  const orderItemsRef = firestore().collection("order_items");
+                  const id = ordersRef.doc().id;
+
+                  // Place order
+                  transaction.set(orderItemsRef.doc(id), {
+                    items: orderItems,
+                    merchantId,
+                    userId,
+                  });
+                  transaction.set(ordersRef.doc(id), {
+                    ...orderDetails,
+                    messages: [],
+                  });
+
+                  // Update order number
+                  transaction.update(merchantRef, {
+                    orderNumber: newMerchantOrderNumber,
+                  });
+                  transaction.update(userRef, {
+                    orderNumber: newUserOrderNumber,
+                  });
+
+                  // Update store item document quantities
+                  merchantItemDocs.map(async (merchantItemDoc) => {
+                    const docItems = await currentStoreItems.filter(
+                      (item) => item.doc === merchantItemDoc
+                    );
+                    const merchantItemDocRef = db
+                      .collection("merchants")
+                      .doc(merchantId)
+                      .collection("items")
+                      .doc(merchantItemDoc);
+
+                    transaction.update(merchantItemDocRef, {
+                      items: [...docItems],
+                    });
+                  });
+
+                  transaction.update(userCartRef, {
+                    [merchantId]: firestore.FieldValue.delete(),
+                  });
+
+                  return { orderDetails, storeDetails };
+                });
+            })
+            .then(async ({ orderDetails, storeDetails }) => {
+              // Send Order Notification to merchant
+              let fcmTokens = [];
+
+              fcmTokens = storeDetails.fcmTokens && [...storeDetails.fcmTokens];
+
+              const { merchantOrderNumber, totalAmount } = orderDetails;
+              const orderNotifications = [];
+
+              if (fcmTokens) {
+                fcmTokens.map((token) => {
+                  orderNotifications.push({
+                    notification: {
+                      title: "You've got a new order!",
+                      body: `Order # ${merchantOrderNumber}; Total Amount: ${totalAmount}`,
+                    },
+                    token,
+                  });
+                });
               }
 
-              if (merchantDoc.exists) {
-                storeDetails = merchantDoc.data();
-              } else {
-                console.error("Error: User does not exist!");
-              }
+              orderNotifications.length > 0
+                ? await admin.messaging().sendAll(orderNotifications)
+                : functions.logger.log(`No fcm token found for ${merchantId}`);
 
-              return;
+              return {
+                s: 200,
+                m: `Order placed for ${storeDetails.storeName}`,
+              };
             });
-
-          const currentUserOrderNumber = userData.orderNumber
-            ? userData.orderNumber
-            : 0;
-
-          const currentMerchantOrderNumber = storeDetails.orderNumber
-            ? storeDetails.orderNumber
-            : 0;
-
-          let quantity = 0;
-          let totalAmount = 0;
-
-          const orderItems = storeCartItems[merchantId];
-          const shipping = storeSelectedShipping[merchantId];
-          const paymentMethod = storeSelectedPaymentMethod[merchantId];
-
-          functions.logger.log("qwe", currentStoreItems);
-
-          orderItems.map((orderItem) => {
-            quantity = orderItem.quantity + quantity;
-            totalAmount = orderItem.price * orderItem.quantity + totalAmount;
-
-            const currentStoreItemIndex = currentStoreItems.findIndex(
-              (storeItem) => storeItem.itemId === orderItem.itemId
-            );
-
-            const currentStoreItem = currentStoreItems[currentStoreItemIndex];
-
-            currentStoreItem.stock -= orderItem.quantity;
-
-            currentStoreItem.sales += orderItem.quantity;
-
-            if (currentStoreItem.stock < 0) {
-              error = `Not enough stocks for item ${orderItem.name} from ${merchantId}`;
-              return Promise.reject(new functions.https.HttpsError(error));
-            }
-          });
-
-          const timeStamp = firestore.Timestamp.now().toMillis();
-          const newMerchantOrderNumber = currentMerchantOrderNumber + 1;
-          const newUserOrderNumber = currentUserOrderNumber + 1;
-
-          const orderDetails = {
-            reviewed: false,
-            userCoordinates,
-            deliveryCoordinates,
-            deliveryAddress,
-            userName,
-            userPhoneNumber,
-            userId,
-            createdAt: timeStamp,
-            updatedAt: timeStamp,
-            orderStatus,
-            quantity,
-            totalAmount,
-            shipping,
-            merchantId,
-            paymentMethod,
-            merchantOrderNumber: newMerchantOrderNumber,
-            userOrderNumber: newUserOrderNumber,
-          };
-
-          const ordersRef = firestore().collection("orders");
-          const orderItemsRef = firestore().collection("order_items");
-          const id = ordersRef.doc().id;
-
-          // Place order
-          transaction.set(orderItemsRef.doc(id), {
-            items: orderItems,
-            merchantId,
-            userId,
-          });
-          transaction.set(ordersRef.doc(id), {
-            ...orderDetails,
-            messages: [],
-          });
-
-          // Update order number
-          transaction.update(merchantRef, {
-            orderNumber: newMerchantOrderNumber,
-          });
-          transaction.update(userRef, {
-            orderNumber: newUserOrderNumber,
-          });
-
-          // Update store item document quantities
-          merchantItemDocs.map(async (merchantItemDoc) => {
-            const docItems = await currentStoreItems.filter(
-              (item) => item.doc === merchantItemDoc
-            );
-            const merchantItemDocRef = db
-              .collection("merchants")
-              .doc(merchantId)
-              .collection("items")
-              .doc(merchantItemDoc);
-
-            transaction.update(merchantItemDocRef, {
-              items: [...docItems],
-            });
-          });
-
-          transaction.update(userCartRef, {
-            [merchantId]: firestore.FieldValue.delete(),
-          });
-
-          return { orderDetails, storeDetails };
         })
-        .then(async ({ orderDetails, storeDetails }) => {
-          // Send Order Notification to merchant
-          let fcmTokens = [];
-
-          fcmTokens = storeDetails.fcmTokens && [...storeDetails.fcmTokens];
-
-          const { merchantOrderNumber, totalAmount } = orderDetails;
-          const orderNotifications = [];
-
-          if (fcmTokens) {
-            fcmTokens.map((token) => {
-              orderNotifications.push({
-                notification: {
-                  title: "You've got a new order!",
-                  body: `Order # ${merchantOrderNumber}; Total Amount: ${totalAmount}`,
-                },
-                token,
-              });
-            });
-          }
-
-          return orderNotifications.length > 0
-            ? await admin.messaging().sendAll(orderNotifications)
-            : functions.logger.log(`No fcm token found for ${merchantId}`);
-        });
-    });
+      );
+    } catch (e) {
+      return { s: 400, m: `${e}` };
+    }
   });
 
 exports.addReview = functions
