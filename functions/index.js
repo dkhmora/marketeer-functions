@@ -74,12 +74,14 @@ exports.changeOrderStatus = functions
           orderData = orderDoc.data();
           merchantData = merchantDoc.data();
 
-          if (!merchantDoc.data().admins[userId] === true) {
-            throw new Error("User is not merchant admin");
+          if (merchantId !== merchantDoc.id) {
+            throw new Error("Order does not correspond with merchant id");
           }
 
-          if (orderDoc.data().merchantId !== merchantDoc.id) {
-            throw new Error("Order does not correspond with merchant id");
+          if (merchantData.creditData.creditThresholdReached) {
+            throw new Error(
+              "You have reached the Markee credit threshold! Please load up in order to process more orders. If you have any problems, please contact Marketeer Support at support@marketeer.ph"
+            );
           }
 
           return;
@@ -141,9 +143,9 @@ exports.changeOrderStatus = functions
               ["creditData.creditThresholdReached"]: newCreditThresholdReached,
             });
 
-            let fcmTokens = [];
-
-            fcmTokens = merchantData.fcmTokens && merchantData.fcmTokens;
+            const fcmTokens = merchantData.fcmTokens
+              ? merchantData.fcmTokens
+              : [];
 
             const orderNotifications = [];
 
@@ -204,24 +206,15 @@ exports.cancelOrder = functions
     }
 
     try {
-      let orderData, merchantData;
+      let orderData;
 
       return db.runTransaction(async (transaction) => {
         const orderRef = firestore().collection("orders").doc(orderId);
-        const merchantRef = firestore().collection("merchants").doc(merchantId);
 
-        await transaction.getAll(orderRef, merchantRef).then((documents) => {
-          const orderDoc = documents[0];
-          const merchantDoc = documents[1];
+        await transaction.get(orderRef).then((document) => {
+          orderData = document.data();
 
-          orderData = orderDoc.data();
-          merchantData = merchantDoc.data();
-
-          if (!merchantDoc.data().admins[userId] === true) {
-            throw new Error("User is not merchant admin");
-          }
-
-          if (orderDoc.data().merchantId !== merchantDoc.id) {
+          if (orderData.merchantId !== merchantId) {
             throw new Error("Order does not correspond with merchant id");
           }
 
