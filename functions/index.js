@@ -51,140 +51,179 @@ exports.changeOrderStatus = functions
       return { s: 400, m: "Bad argument: Order ID not found" };
     }
 
-    const statusArray = [
-      "pending",
-      "unpaid",
-      "paid",
-      "shipped",
-      "completed",
-      "cancelled",
-    ];
+    const statusArray = ["pending", "unpaid", "paid", "shipped", "completed"];
 
     const orderRef = firestore().collection("orders").doc(orderId);
     const merchantRef = firestore().collection("merchants").doc(merchantId);
 
     try {
-      return db.runTransaction(async (transaction) => {
-        let orderData, merchantData;
+      return db
+        .runTransaction(async (transaction) => {
+          let orderData, merchantData;
 
-        await transaction.getAll(orderRef, merchantRef).then((documents) => {
-          const orderDoc = documents[0];
-          const merchantDoc = documents[1];
+          await transaction.getAll(orderRef, merchantRef).then((documents) => {
+            const orderDoc = documents[0];
+            const merchantDoc = documents[1];
 
-          orderData = orderDoc.data();
-          merchantData = merchantDoc.data();
+            orderData = orderDoc.data();
+            merchantData = merchantDoc.data();
 
-          if (merchantId !== merchantDoc.id) {
-            throw new Error("Order does not correspond with merchant id");
-          }
+            if (merchantId !== merchantDoc.id) {
+              throw new Error("Order does not correspond with merchant id");
+            }
 
-          if (merchantData.creditData.creditThresholdReached) {
-            throw new Error(
-              "You have reached the Markee credit threshold! Please load up in order to process more orders. If you have any problems, please contact Marketeer Support at support@marketeer.ph"
-            );
-          }
+            if (merchantData.creditData.creditThresholdReached) {
+              throw new Error(
+                "You have reached the Markee credit threshold! Please load up in order to process more orders. If you have any problems, please contact Marketeer Support at support@marketeer.ph"
+              );
+            }
 
-          return;
-        });
-
-        const { orderStatus, paymentMethod, totalAmount } = orderData;
-
-        let currentOrderStatus = null;
-        let newOrderStatus = {};
-
-        Object.keys(orderStatus).map((item, index) => {
-          if (orderStatus[`${item}`].status) {
-            currentOrderStatus = item;
-          }
-        });
-
-        if (currentOrderStatus) {
-          let nextStatusIndex = statusArray.indexOf(currentOrderStatus) + 1;
-
-          if (paymentMethod === "COD" && currentOrderStatus === "pending") {
-            nextStatusIndex = 2;
-          }
-
-          const nextStatus = statusArray[nextStatusIndex];
-
-          newOrderStatus = orderStatus;
-
-          const nowTimestamp = firestore.Timestamp.now().toMillis();
-
-          newOrderStatus[`${currentOrderStatus}`] = {
-            status: false,
-          };
-
-          newOrderStatus[`${nextStatus}`] = {
-            status: true,
-            updatedAt: nowTimestamp,
-          };
-
-          transaction.update(orderRef, {
-            orderStatus: newOrderStatus,
-            updatedAt: nowTimestamp,
+            return;
           });
 
-          if (nextStatus === "shipped") {
-            const { creditData } = merchantData;
-            const {
-              credits,
-              creditThreshold,
-              transactionFeePercentage,
-            } = creditData;
-            const transactionFee =
-              Math.round(totalAmount * transactionFeePercentage) / 100;
-            const newCredits = credits - transactionFee;
-            const newCreditThresholdReached =
-              newCredits < creditThreshold ? true : false;
+          const { orderStatus, paymentMethod, totalAmount } = orderData;
 
-            transaction.update(merchantRef, {
-              ["creditData.credits"]: newCredits,
-              ["creditData.creditThresholdReached"]: newCreditThresholdReached,
+          let currentOrderStatus = null;
+          let newOrderStatus = {};
+
+          Object.keys(orderStatus).map((item, index) => {
+            if (orderStatus[`${item}`].status) {
+              currentOrderStatus = item;
+            }
+          });
+
+          if (currentOrderStatus) {
+            let nextStatusIndex = statusArray.indexOf(currentOrderStatus) + 1;
+
+            if (paymentMethod === "COD" && currentOrderStatus === "pending") {
+              nextStatusIndex = 2;
+            }
+
+            const nextStatus = statusArray[nextStatusIndex];
+
+            newOrderStatus = orderStatus;
+
+            const nowTimestamp = firestore.Timestamp.now().toMillis();
+
+            newOrderStatus[`${currentOrderStatus}`] = {
+              status: false,
+            };
+
+            newOrderStatus[`${nextStatus}`] = {
+              status: true,
+              updatedAt: nowTimestamp,
+            };
+
+            transaction.update(orderRef, {
+              orderStatus: newOrderStatus,
+              updatedAt: nowTimestamp,
             });
 
-            const fcmTokens = merchantData.fcmTokens
-              ? merchantData.fcmTokens
-              : [];
+            if (nextStatus === "shipped") {
+              const { creditData } = merchantData;
+              const {
+                credits,
+                creditThreshold,
+                transactionFeePercentage,
+              } = creditData;
+              const transactionFee =
+                Math.round(totalAmount * transactionFeePercentage) / 100;
+              const newCredits = credits - transactionFee;
+              const newCreditThresholdReached =
+                newCredits < creditThreshold ? true : false;
 
-            const orderNotifications = [];
-
-            if (newCreditThresholdReached) {
-              fcmTokens.map((token) => {
-                orderNotifications.push({
-                  notification: {
-                    title: "WARNING: You've run out of Markee credits!",
-                    body: `"Please top up in order to receive more orders.
-                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
-                  },
-                  token,
-                });
+              transaction.update(merchantRef, {
+                ["creditData.credits"]: newCredits,
+                ["creditData.creditThresholdReached"]: newCreditThresholdReached,
               });
+
+              const fcmTokens = merchantData.fcmTokens
+                ? merchantData.fcmTokens
+                : [];
+
+              const orderNotifications = [];
+
+              if (newCreditThresholdReached) {
+                fcmTokens.map((token) => {
+                  orderNotifications.push({
+                    notification: {
+                      title: "WARNING: You've run out of Markee credits!",
+                      body: `"Please top up in order to receive more orders.
+                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
+                    },
+                    token,
+                  });
+                });
+              }
+
+              if (newCredits <= creditThreshold * 2) {
+                fcmTokens.map((token) => {
+                  orderNotifications.push({
+                    notification: {
+                      title: `WARNING: You only have ${newCredits} Markee credits left!`,
+                      body: `"Please top up before reaching your Markee credit threshold limit of ${creditThreshold} in order to receive more orders.
+                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
+                    },
+                    token,
+                  });
+                });
+              }
+
+              orderNotifications.length > 0 && fcmTokens.length > 0
+                ? await admin.messaging().sendAll(orderNotifications)
+                : null;
             }
 
-            if (newCredits <= creditThreshold * 2) {
-              fcmTokens.map((token) => {
-                orderNotifications.push({
-                  notification: {
-                    title: `WARNING: You only have ${newCredits} Markee credits left!`,
-                    body: `"Please top up before reaching your Markee credit threshold limit of ${creditThreshold} in order to receive more orders.
-                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
-                  },
-                  token,
-                });
-              });
-            }
+            return { orderData, merchantData, nextStatus };
+          } else {
+            throw new Error("No order status");
+          }
+        })
+        .then(async ({ orderData, merchantData, nextStatus }) => {
+          const { userId, userOrderNumber } = orderData;
+          const { storeName } = merchantData;
 
-            orderNotifications.length > 0 && fcmTokens.length > 0
-              ? await admin.messaging().sendAll(orderNotifications)
-              : null;
+          const userData = (
+            await db.collection("users").doc(userId).get()
+          ).data();
+
+          const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
+
+          const orderNotifications = [];
+
+          let notificationTitle = "";
+          let notificationBody = "";
+
+          if (nextStatus === "unpaid") {
+            notificationTitle = "Your order has been confirmed!";
+            notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
+          } else if (nextStatus === "paid") {
+            notificationTitle = "Your order has been confirmed!";
+            notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in your chat.`;
+          } else if (nextStatus === "shipped") {
+            notificationTitle = "Your order has been shipped!";
+            notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
+          } else if (nextStatus === "completed") {
+            notificationTitle = "Your order is now marked as complete!";
+            notificationBody = `Enjoy the goodies from ${storeName}! If you liked it, please share your experience with others by placing a review. We hope to serve you again soon!`;
           }
 
-          return { s: 200, m: "Successfully changed order status" };
-        } else {
-          throw new Error("No order status");
-        }
-      });
+          fcmTokens.map((token) => {
+            orderNotifications.push({
+              notification: {
+                title: notificationTitle,
+                body: notificationBody,
+              },
+              token,
+            });
+          });
+
+          orderNotifications.length > 0 && fcmTokens.length > 0
+            ? await admin.messaging().sendAll(orderNotifications)
+            : null;
+
+          return { s: 200, m: "Order status successfully updated!" };
+        });
     } catch (e) {
       return { s: 400, m: `Error, something went wrong: ${e}` };
     }
@@ -206,58 +245,94 @@ exports.cancelOrder = functions
     }
 
     try {
-      let orderData;
+      let orderData, merchantData;
 
-      return db.runTransaction(async (transaction) => {
-        const orderRef = firestore().collection("orders").doc(orderId);
+      return db
+        .runTransaction(async (transaction) => {
+          const orderRef = firestore().collection("orders").doc(orderId);
+          const merchantRef = firestore()
+            .collection("merchants")
+            .doc(merchantId);
 
-        await transaction.get(orderRef).then((document) => {
-          orderData = document.data();
+          await transaction.getAll(orderRef, merchantRef).then((documents) => {
+            orderData = documents[0].data();
+            merchantData = documents[1].data();
 
-          if (orderData.merchantId !== merchantId) {
-            throw new Error("Order does not correspond with merchant id");
+            if (orderData.merchantId !== merchantId) {
+              throw new Error("Order does not correspond with merchant id");
+            }
+
+            return;
+          });
+
+          const { orderStatus } = orderData;
+
+          let newOrderStatus = {};
+          let currentStatus;
+
+          Object.keys(orderStatus).map((item, index) => {
+            if (orderStatus[`${item}`].status) {
+              currentStatus = item;
+            }
+          });
+
+          if (currentStatus !== "pending") {
+            return {
+              s: 400,
+              m: "Error: Order is not pending, and thus cannot be cancelled",
+            };
           }
 
-          return;
-        });
+          newOrderStatus = orderStatus;
 
-        const { orderStatus } = orderData;
+          newOrderStatus[`${currentStatus}`].status = false;
 
-        let newOrderStatus = {};
-        let currentStatus;
+          const nowTimestamp = firestore.Timestamp.now().toMillis();
 
-        Object.keys(orderStatus).map((item, index) => {
-          if (orderStatus[`${item}`].status) {
-            currentStatus = item;
-          }
-        });
-
-        if (currentStatus !== "pending") {
-          return {
-            s: 400,
-            m: "Error: Order is not pending, and thus cannot be cancelled",
+          newOrderStatus.cancelled = {
+            status: true,
+            reason: cancelReason,
+            updatedAt: nowTimestamp,
           };
-        }
 
-        newOrderStatus = orderStatus;
+          transaction.update(orderRef, {
+            orderStatus: newOrderStatus,
+            updatedAt: nowTimestamp,
+          });
 
-        newOrderStatus[`${currentStatus}`].status = false;
+          return { orderData, merchantData };
+        })
+        .then(async ({ orderData, merchantData }) => {
+          const { userId, userOrderNumber } = orderData;
+          const { storeName } = merchantData;
 
-        const nowTimestamp = firestore.Timestamp.now().toMillis();
+          const userData = (
+            await db.collection("users").doc(userId).get()
+          ).data();
 
-        newOrderStatus.cancelled = {
-          status: true,
-          reason: cancelReason,
-          updatedAt: nowTimestamp,
-        };
+          const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
 
-        transaction.update(orderRef, {
-          orderStatus: newOrderStatus,
-          updatedAt: nowTimestamp,
+          const orderNotifications = [];
+
+          const notificationTitle = "Sorry, your order has been cancelled.";
+          const notificationBody = `Order # ${userOrderNumber} has been cancelled by ${storeName}. You may check the reason for cancellation by visiting the orders page.`;
+
+          fcmTokens.map((token) => {
+            orderNotifications.push({
+              notification: {
+                title: notificationTitle,
+                body: notificationBody,
+              },
+              token,
+            });
+          });
+
+          orderNotifications.length > 0 && fcmTokens.length > 0
+            ? await admin.messaging().sendAll(orderNotifications)
+            : null;
+
+          return { s: 200, m: "Order successfully cancelled!" };
         });
-
-        return { s: 200, m: "Order successfully cancelled!" };
-      });
     } catch (e) {
       return { s: 400, m: e };
     }
