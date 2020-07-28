@@ -34,7 +34,7 @@ service cloud.firestore {
       allow read: if userIsAuthenticated();
     }
 
-    match /merchant_items/{merchantId} {
+    match /merchants/{merchantId}/items/{itemPageIds} {
       allow read, write, delete: if userIsMerchantAdmin(merchantId);
       allow read: if userIsAuthenticated();
       allow read: if userIsSignedUp();
