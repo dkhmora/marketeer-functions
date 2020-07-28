@@ -36,6 +36,37 @@ exports.signInWithPhoneAndPassword = functions
     return { s: 200, t: token };
   });
 
+exports.sendPasswordResetLinkToMerchant = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const email = data.email;
+
+    try {
+      if (email === undefined) {
+        return { s: 400, m: "Bad argument: no phone number" };
+      }
+
+      const user = await admin.auth().getUserByEmail(email);
+
+      if (!user) {
+        return { s: 400, m: "Bad argument: Email could not be found" };
+      }
+
+      if (!user.customClaims.merchantId) {
+        return {
+          s: 400,
+          m: "Bad argument: Email is not assigned to any merchant",
+        };
+      }
+
+      await firebase.auth().sendPasswordResetEmail(email);
+    } catch (e) {
+      return { s: 400, m: "Error, something went wrong" };
+    }
+
+    return { s: 200, m: `Password reset link successfully sent to ${email}!` };
+  });
+
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
