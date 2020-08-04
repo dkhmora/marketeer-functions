@@ -30,7 +30,8 @@ service cloud.firestore {
     match /merchants/{merchantId} {
       allow update, delete: if userIsAuthenticated() && userIsMerchantAdmin(merchantId)
       && notUpdating('creditData') && notUpdating('visibleToPublic')
-      && notUpdating('storeCategory') && notUpdating('storeName');
+      && notUpdating('storeCategory') && notUpdating('storeName')
+      && notUpdating('storeLocation');
       allow read: if userIsAuthenticated();
     }
 
