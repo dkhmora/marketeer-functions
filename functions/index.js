@@ -4,9 +4,6 @@ const firebase = require("firebase");
 const admin = require("firebase-admin");
 const { firestore } = require("firebase-admin");
 const { FB_CONFIG, HERE_API_KEY } = require("./config");
-const { resolve } = require("path");
-const { rejects } = require("assert");
-const { HttpsError } = require("firebase-functions/lib/providers/https");
 
 admin.initializeApp();
 
@@ -112,7 +109,7 @@ exports.changeOrderStatus = functions
             return;
           });
 
-          const { orderStatus, paymentMethod, totalAmount } = orderData;
+          const { orderStatus, paymentMethod, subTotal } = orderData;
 
           let currentOrderStatus = null;
           let newOrderStatus = {};
@@ -158,7 +155,7 @@ exports.changeOrderStatus = functions
                 transactionFeePercentage,
               } = creditData;
               const transactionFee =
-                Math.round(totalAmount * transactionFeePercentage) / 100;
+                Math.round(subTotal * transactionFeePercentage) / 100;
               const newCredits = credits - transactionFee;
               const newCreditThresholdReached =
                 newCredits < creditThreshold ? true : false;
@@ -427,7 +424,7 @@ exports.placeOrder = functions
       deliveryAddress,
       userCoordinates,
       userName,
-      storeSelectedShipping,
+      storeSelectedDeliveryMethod,
       storeSelectedPaymentMethod,
     } = JSON.parse(orderInfo);
 
@@ -453,7 +450,7 @@ exports.placeOrder = functions
         userCoordinates === undefined ||
         userName === undefined ||
         storeCartItems === undefined ||
-        storeSelectedShipping === undefined ||
+        storeSelectedDeliveryMethod === undefined ||
         storeSelectedPaymentMethod === undefined
       ) {
         return { s: 400, m: "Bad argument: Incomplete request" };
@@ -541,18 +538,18 @@ exports.placeOrder = functions
                     : 0;
 
                   let quantity = 0;
-                  let totalAmount = 0;
+                  let subTotal = 0;
 
                   const orderItems = storeCartItems[merchantId];
-                  const shipping = storeSelectedShipping[merchantId];
+                  const deliveryMethod =
+                    storeSelectedDeliveryMethod[merchantId];
                   const paymentMethod = storeSelectedPaymentMethod[merchantId];
 
                   functions.logger.log("qwe", currentStoreItems);
 
                   await orderItems.map((orderItem) => {
                     quantity = orderItem.quantity + quantity;
-                    totalAmount =
-                      orderItem.price * orderItem.quantity + totalAmount;
+                    subTotal = orderItem.price * orderItem.quantity + subTotal;
 
                     const currentStoreItemIndex = currentStoreItems.findIndex(
                       (storeItem) => storeItem.itemId === orderItem.itemId
@@ -574,6 +571,13 @@ exports.placeOrder = functions
                   const timeStamp = firestore.Timestamp.now().toMillis();
                   const newMerchantOrderNumber = currentMerchantOrderNumber + 1;
                   const newUserOrderNumber = currentUserOrderNumber + 1;
+                  const deliveryPrice =
+                    deliveryMethod === "Own Delivery" &&
+                    subTotal >= storeDetails.freeDeliveryMinimum
+                      ? 0
+                      : deliveryMethod !== "Own Delivery"
+                      ? null
+                      : storeDetails.ownDeliveryServiceFee;
 
                   const orderDetails = {
                     reviewed: false,
@@ -587,8 +591,9 @@ exports.placeOrder = functions
                     updatedAt: timeStamp,
                     orderStatus,
                     quantity,
-                    totalAmount,
-                    shipping,
+                    subTotal,
+                    deliveryMethod,
+                    deliveryPrice,
                     merchantId,
                     paymentMethod,
                     merchantOrderNumber: newMerchantOrderNumber,
@@ -647,7 +652,7 @@ exports.placeOrder = functions
 
               fcmTokens = storeDetails.fcmTokens && [...storeDetails.fcmTokens];
 
-              const { merchantOrderNumber, totalAmount } = orderDetails;
+              const { merchantOrderNumber, subTotal } = orderDetails;
               const orderNotifications = [];
 
               if (fcmTokens) {
@@ -655,7 +660,7 @@ exports.placeOrder = functions
                   orderNotifications.push({
                     notification: {
                       title: "You've got a new order!",
-                      body: `Order # ${merchantOrderNumber}; Total Amount: ${totalAmount}`,
+                      body: `Order # ${merchantOrderNumber}; Order Total: ${subTotal}`,
                     },
                     token,
                   });
