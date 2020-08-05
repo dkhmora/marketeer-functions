@@ -814,7 +814,7 @@ exports.addStoreItem = functions
       functions.logger.log(merchantId);
 
       await merchantItemsRef
-        .where("itemNumber", "<", 3)
+        .where("itemNumber", "<", 1500)
         .orderBy("itemNumber", "desc")
         .limit(1)
         .get()
