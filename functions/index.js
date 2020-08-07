@@ -96,7 +96,7 @@ exports.changeOrderStatus = functions
             orderData = orderDoc.data();
             merchantData = merchantDoc.data();
 
-            if (merchantId !== merchantDoc.id) {
+            if (merchantId !== orderData.merchantId) {
               throw new Error("Order does not correspond with merchant id");
             }
 
@@ -876,13 +876,19 @@ exports.setMerchantAdminToken = functions
   .firestore.document("merchant_admins/{merchantId}")
   .onWrite(async (change, context) => {
     const newData = change.after.exists ? change.after.data() : null;
-    const previousData = change.before.data();
+    const previousData = change.before.exists ? change.before.data() : null;
     const newDataLength = newData ? Object.keys(newData).length : null;
-    const previousDataLength = Object.keys(previousData).length;
+    const previousDataLength = previousData
+      ? Object.keys(previousData).length
+      : null;
 
     const merchantId = context.params.merchantId;
 
-    if (newData && newDataLength >= previousDataLength) {
+    if (
+      newDataLength &&
+      previousDataLength &&
+      newDataLength >= previousDataLength
+    ) {
       Object.entries(newData).map(async ([userId, value]) => {
         if (value === false) {
           return await admin
@@ -910,7 +916,11 @@ exports.setMerchantAdminToken = functions
           functions.logger.log(`${userId} already set`);
         }
       });
-    } else if (previousData && newDataLength < previousDataLength) {
+    } else if (
+      newDataLength &&
+      previousDataLength &&
+      newDataLength < previousDataLength
+    ) {
       Object.entries(previousData).map(async ([userId, value]) => {
         if (!Object.keys(newData).includes(userId)) {
           return await admin
@@ -926,5 +936,7 @@ exports.setMerchantAdminToken = functions
             });
         }
       });
+    } else {
+      functions.logger.log("No user IDs");
     }
   });
