@@ -421,6 +421,7 @@ exports.placeOrder = functions
 
     const {
       deliveryCoordinates,
+      deliveryCoordinatesGeohash,
       deliveryAddress,
       userCoordinates,
       userName,
@@ -621,8 +622,16 @@ exports.placeOrder = functions
                   transaction.update(merchantRef, {
                     orderNumber: newMerchantOrderNumber,
                   });
+
                   transaction.update(userRef, {
                     orderNumber: newUserOrderNumber,
+                    addresses: {
+                      Home: {
+                        coordinates: { ...deliveryCoordinates },
+                        geohash: deliveryCoordinatesGeohash,
+                        address: deliveryAddress,
+                      },
+                    },
                   });
 
                   // Update store item document quantities
