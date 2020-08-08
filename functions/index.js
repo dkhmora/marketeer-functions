@@ -569,13 +569,15 @@ exports.placeOrder = functions
                   const timeStamp = firestore.Timestamp.now().toMillis();
                   const newMerchantOrderNumber = currentMerchantOrderNumber + 1;
                   const newUserOrderNumber = currentUserOrderNumber + 1;
-                  const deliveryPrice =
+                  const freeDelivery =
                     deliveryMethod === "Own Delivery" &&
-                    subTotal >= storeDetails.freeDeliveryMinimum
-                      ? 0
-                      : deliveryMethod !== "Own Delivery"
-                      ? null
-                      : storeDetails.ownDeliveryServiceFee;
+                    subTotal >= storeDetails.freeDeliveryMinimum &&
+                    storeDetails.freeDelivery;
+                  const deliveryPrice = freeDelivery
+                    ? 0
+                    : deliveryMethod !== "Own Delivery"
+                    ? null
+                    : storeDetails.ownDeliveryServiceFee;
 
                   const orderDetails = {
                     reviewed: false,
@@ -590,6 +592,7 @@ exports.placeOrder = functions
                     orderStatus,
                     quantity,
                     subTotal,
+                    freeDelivery,
                     deliveryMethod,
                     deliveryPrice,
                     merchantId,
