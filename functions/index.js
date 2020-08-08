@@ -545,8 +545,6 @@ exports.placeOrder = functions
                     storeSelectedDeliveryMethod[merchantId];
                   const paymentMethod = storeSelectedPaymentMethod[merchantId];
 
-                  functions.logger.log("qwe", currentStoreItems);
-
                   await orderItems.map((orderItem) => {
                     quantity = orderItem.quantity + quantity;
                     subTotal = orderItem.price * orderItem.quantity + subTotal;
@@ -595,6 +593,7 @@ exports.placeOrder = functions
                     deliveryMethod,
                     deliveryPrice,
                     merchantId,
+                    storeName: storeDetails.storeName,
                     paymentMethod,
                     merchantOrderNumber: newMerchantOrderNumber,
                     userOrderNumber: newUserOrderNumber,
@@ -877,18 +876,14 @@ exports.setMerchantAdminToken = functions
   .onWrite(async (change, context) => {
     const newData = change.after.exists ? change.after.data() : null;
     const previousData = change.before.exists ? change.before.data() : null;
-    const newDataLength = newData ? Object.keys(newData).length : null;
+    const newDataLength = newData ? Object.keys(newData).length : 0;
     const previousDataLength = previousData
       ? Object.keys(previousData).length
-      : null;
+      : 0;
 
     const merchantId = context.params.merchantId;
 
-    if (
-      newDataLength &&
-      previousDataLength &&
-      newDataLength >= previousDataLength
-    ) {
+    if (newDataLength >= previousDataLength) {
       Object.entries(newData).map(async ([userId, value]) => {
         if (value === false) {
           return await admin
@@ -916,11 +911,7 @@ exports.setMerchantAdminToken = functions
           functions.logger.log(`${userId} already set`);
         }
       });
-    } else if (
-      newDataLength &&
-      previousDataLength &&
-      newDataLength < previousDataLength
-    ) {
+    } else if (newDataLength < previousDataLength) {
       Object.entries(previousData).map(async ([userId, value]) => {
         if (!Object.keys(newData).includes(userId)) {
           return await admin
