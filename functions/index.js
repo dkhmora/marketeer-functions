@@ -697,7 +697,7 @@ exports.placeOrder = functions
 exports.addReview = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { orderId, merchantId, reviewTitle, reviewBody, rating } = data;
+    const { orderId, merchantId, reviewBody, rating } = data;
     const userId = context.auth.uid;
     const userName = context.auth.token.name || null;
     const userPhoneNumber = context.auth.token.phone_number;
@@ -717,31 +717,32 @@ exports.addReview = functions
         let orderReviewPage = 0;
         let newRatingAverage = 0;
 
-        await transaction
+        return await transaction
           .getAll(orderRef, merchantRef)
           .then((documents) => {
             const orderDoc = documents[0];
             const merchantDoc = documents[1];
+            const timeStamp = firestore.Timestamp.now().toMillis();
 
             const review = {
-              reviewTitle,
               reviewBody,
               rating,
               orderId,
               userId,
               userName,
-              createdAt: new Date().toISOString(),
+              createdAt: timeStamp,
             };
 
             if (orderDoc.exists) {
               if (orderDoc.data().reviewed) {
-                return Promise.reject(
-                  new Error("The order is already reviewed")
-                );
+                throw new Error("The order is already reviewed");
               } else if (orderDoc.data().merchantId !== merchantId) {
-                return Promise.reject(new Error("Merchant Ids do not match"));
+                throw new Error("Merchant Ids do not match");
               } else {
-                transaction.update(orderDoc.ref, { reviewed: true });
+                transaction.update(orderDoc.ref, {
+                  reviewed: true,
+                  updatedAt: timeStamp,
+                });
               }
             }
 
@@ -789,9 +790,6 @@ exports.addReview = functions
             }
 
             return { s: 200, m: "Review placed!" };
-          })
-          .catch((err) => {
-            console.log(err);
           });
       });
     } catch (e) {
