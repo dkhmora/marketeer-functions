@@ -133,9 +133,7 @@ exports.changeOrderStatus = functions
 
             const nowTimestamp = firestore.Timestamp.now().toMillis();
 
-            newOrderStatus[`${currentOrderStatus}`] = {
-              status: false,
-            };
+            newOrderStatus[`${currentOrderStatus}`].status = false;
 
             newOrderStatus[`${nextStatus}`] = {
               status: true,
@@ -223,7 +221,13 @@ exports.changeOrderStatus = functions
             let notificationTitle = "";
             let notificationBody = "";
 
-            if (nextStatus === "unpaid") {
+            if (nextStatus === "unpaid" && paymentMethod === "Online Payment") {
+              notificationTitle = "Your order has been confirmed!";
+              notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by contacting ${storeName} through our chat in the Orders Screen.`;
+            } else if (
+              nextStatus === "unpaid" &&
+              paymentMethod === "Online Payment"
+            ) {
               notificationTitle = "Your order has been confirmed!";
               notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
             } else if (
@@ -231,23 +235,23 @@ exports.changeOrderStatus = functions
               paymentMethod === "Online Payment"
             ) {
               notificationTitle = "Your order has been marked as paid!";
-              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in your chat.`;
+              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
             } else if (nextStatus === "paid" && paymentMethod === "COD") {
               notificationTitle = "Your order has been confirmed!";
-              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in your chat.`;
+              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
             } else if (
               nextStatus === "paid" &&
               paymentMethod === "Online Banking"
             ) {
               notificationTitle =
                 "You've successfully paid for your order online!";
-              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in your chat.`;
+              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
             } else if (nextStatus === "shipped") {
               notificationTitle = "Your order has been shipped!";
               notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
             } else if (nextStatus === "completed") {
               notificationTitle = "Your order is now marked as complete!";
-              notificationBody = `Enjoy the goodies from ${storeName}! If you liked it, please share your experience with others by placing a review. We hope to serve you again soon!`;
+              notificationBody = `Enjoy the goodies from ${storeName}! If you liked the service, please share your experience with others by placing a review. We hope to serve you again soon!`;
             }
 
             fcmTokens.map((token) => {
