@@ -323,10 +323,11 @@ exports.cancelOrder = functions
             }
           });
 
-          if (currentStatus !== "pending") {
+          if (currentStatus !== "pending" || currentStatus !== "unpaid") {
             return {
               s: 400,
-              m: "Error: Order is not pending, and thus cannot be cancelled",
+              m:
+                "Error: Order is not pending or unpaid, and thus cannot be cancelled",
             };
           }
 
