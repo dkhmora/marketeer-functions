@@ -292,63 +292,64 @@ exports.cancelOrder = functions
     }
 
     try {
-      let orderData, merchantData;
-
-      return db
+      return await db
         .runTransaction(async (transaction) => {
           const orderRef = firestore().collection("orders").doc(orderId);
           const merchantRef = firestore()
             .collection("merchants")
             .doc(merchantId);
 
-          await transaction.getAll(orderRef, merchantRef).then((documents) => {
-            orderData = documents[0].data();
-            merchantData = documents[1].data();
+          return await transaction
+            .getAll(orderRef, merchantRef)
+            .then((documents) => {
+              const orderData = documents[0].data();
+              const merchantData = documents[1].data();
 
-            if (orderData.merchantId !== merchantId) {
-              throw new Error("Order does not correspond with merchant id");
-            }
+              if (orderData.merchantId !== merchantId) {
+                throw new Error("Order does not correspond with merchant id");
+              }
 
-            return;
-          });
+              const { orderStatus } = orderData;
 
-          const { orderStatus } = orderData;
+              let newOrderStatus = {};
+              let currentStatus;
 
-          let newOrderStatus = {};
-          let currentStatus;
+              Object.keys(orderStatus).map((item, index) => {
+                if (orderStatus[`${item}`].status) {
+                  currentStatus = item;
+                }
+              });
 
-          Object.keys(orderStatus).map((item, index) => {
-            if (orderStatus[`${item}`].status) {
-              currentStatus = item;
-            }
-          });
+              if (
+                currentStatus === "paid" ||
+                currentStatus === "shipped" ||
+                currentStatus === "completed" ||
+                currentStatus === "cancelled"
+              ) {
+                throw new Error(
+                  "Error: Order is not pending or unpaid, and thus cannot be cancelled"
+                );
+              }
 
-          if (currentStatus !== "pending" || currentStatus !== "unpaid") {
-            return {
-              s: 400,
-              m:
-                "Error: Order is not pending or unpaid, and thus cannot be cancelled",
-            };
-          }
+              newOrderStatus = orderStatus;
 
-          newOrderStatus = orderStatus;
+              newOrderStatus[`${currentStatus}`].status = false;
 
-          newOrderStatus[`${currentStatus}`].status = false;
+              const nowTimestamp = firestore.Timestamp.now().toMillis();
 
-          const nowTimestamp = firestore.Timestamp.now().toMillis();
+              newOrderStatus.cancelled = {
+                status: true,
+                reason: cancelReason,
+                updatedAt: nowTimestamp,
+              };
 
-          newOrderStatus.cancelled = {
-            status: true,
-            reason: cancelReason,
-            updatedAt: nowTimestamp,
-          };
+              transaction.update(orderRef, {
+                orderStatus: newOrderStatus,
+                updatedAt: nowTimestamp,
+              });
 
-          transaction.update(orderRef, {
-            orderStatus: newOrderStatus,
-            updatedAt: nowTimestamp,
-          });
-
-          return { orderData, merchantData };
+              return { orderData, merchantData };
+            });
         })
         .then(async ({ orderData, merchantData }) => {
           const { userId, userOrderNumber } = orderData;
