@@ -202,56 +202,71 @@ exports.changeOrderStatus = functions
                 : null;
             }
 
-            return { orderData, merchantData, nextStatus };
+            return { orderData, merchantData, nextStatus, paymentMethod };
           } else {
             throw new Error("No order status");
           }
         })
-        .then(async ({ orderData, merchantData, nextStatus }) => {
-          const { userId, userOrderNumber } = orderData;
-          const { storeName } = merchantData;
+        .then(
+          async ({ orderData, merchantData, nextStatus, paymentMethod }) => {
+            const { userId, userOrderNumber } = orderData;
+            const { storeName } = merchantData;
 
-          const userData = (
-            await db.collection("users").doc(userId).get()
-          ).data();
+            const userData = (
+              await db.collection("users").doc(userId).get()
+            ).data();
 
-          const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
+            const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
 
-          const orderNotifications = [];
+            const orderNotifications = [];
 
-          let notificationTitle = "";
-          let notificationBody = "";
+            let notificationTitle = "";
+            let notificationBody = "";
 
-          if (nextStatus === "unpaid") {
-            notificationTitle = "Your order has been confirmed!";
-            notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
-          } else if (nextStatus === "paid") {
-            notificationTitle = "Your order has been confirmed!";
-            notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in your chat.`;
-          } else if (nextStatus === "shipped") {
-            notificationTitle = "Your order has been shipped!";
-            notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
-          } else if (nextStatus === "completed") {
-            notificationTitle = "Your order is now marked as complete!";
-            notificationBody = `Enjoy the goodies from ${storeName}! If you liked it, please share your experience with others by placing a review. We hope to serve you again soon!`;
-          }
+            if (nextStatus === "unpaid") {
+              notificationTitle = "Your order has been confirmed!";
+              notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
+            } else if (
+              nextStatus === "paid" &&
+              paymentMethod === "Online Payment"
+            ) {
+              notificationTitle = "Your order has been marked as paid!";
+              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in your chat.`;
+            } else if (nextStatus === "paid" && paymentMethod === "COD") {
+              notificationTitle = "Your order has been confirmed!";
+              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in your chat.`;
+            } else if (
+              nextStatus === "paid" &&
+              paymentMethod === "Online Banking"
+            ) {
+              notificationTitle =
+                "You've successfully paid for your order online!";
+              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in your chat.`;
+            } else if (nextStatus === "shipped") {
+              notificationTitle = "Your order has been shipped!";
+              notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
+            } else if (nextStatus === "completed") {
+              notificationTitle = "Your order is now marked as complete!";
+              notificationBody = `Enjoy the goodies from ${storeName}! If you liked it, please share your experience with others by placing a review. We hope to serve you again soon!`;
+            }
 
-          fcmTokens.map((token) => {
-            orderNotifications.push({
-              notification: {
-                title: notificationTitle,
-                body: notificationBody,
-              },
-              token,
+            fcmTokens.map((token) => {
+              orderNotifications.push({
+                notification: {
+                  title: notificationTitle,
+                  body: notificationBody,
+                },
+                token,
+              });
             });
-          });
 
-          orderNotifications.length > 0 && fcmTokens.length > 0
-            ? await admin.messaging().sendAll(orderNotifications)
-            : null;
+            orderNotifications.length > 0 && fcmTokens.length > 0
+              ? await admin.messaging().sendAll(orderNotifications)
+              : null;
 
-          return { s: 200, m: "Order status successfully updated!" };
-        });
+            return { s: 200, m: "Order status successfully updated!" };
+          }
+        );
     } catch (e) {
       return { s: 400, m: `Error, something went wrong: ${e}` };
     }
