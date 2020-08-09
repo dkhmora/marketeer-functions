@@ -21,7 +21,7 @@ service firebase.storage {
 
     match /images/orders/{orderId}/order_chat/{fileName} {
       allow read: if userIsMerchantAdmin(resource.metadata.merchantId) || userOwnsFile(resource.metadata.customerUserId);
-      allow write: if userIsMerchantAdmin(request.resource.metadata.merchantId) || userOwnsFile(request.resource.metadata.customerUserId);
+      allow create: if userIsMerchantAdmin(request.resource.metadata.merchantId) || userOwnsFile(request.resource.metadata.customerUserId);
     }
 
     match /images/store_categories/{fileName} {
