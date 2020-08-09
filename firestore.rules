@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     function userIsMerchantAdmin(merchantId) {
-      return userIsAuthenticated() && request.auth.token.merchantId == merchantId;
+      return request.auth.token.merchantIds[merchantId] || request.auth.token.merchantId == merchantId;
     }
 
     function userIsSignedUp() {
@@ -28,7 +28,7 @@ service cloud.firestore {
     }
 
     match /merchants/{merchantId} {
-      allow update, delete: if userIsAuthenticated() && userIsMerchantAdmin(merchantId)
+      allow update, delete: if userIsMerchantAdmin(merchantId)
       && notUpdating('creditData') && notUpdating('visibleToPublic')
       && notUpdating('storeCategory') && notUpdating('storeName')
       && notUpdating('storeLocation');

@@ -894,14 +894,30 @@ exports.setMerchantAdminToken = functions
       : 0;
 
     const merchantId = context.params.merchantId;
+    const merchantIds = { [context.params.merchantId]: true };
+    const role = "admin";
 
     if (newDataLength >= previousDataLength) {
       Object.entries(newData).map(async ([userId, value]) => {
         if (value === false) {
+          const previousUserCustomClaims = (await admin.auth().getUser(userId))
+            .customClaims;
+
+          functions.logger(
+            `previousUserCustomClaims of ${userId}: ${previousUserCustomClaims}`
+          );
+
           return await admin
             .auth()
-            .setCustomUserClaims(userId, { merchantId })
+            .setCustomUserClaims(userId, { merchantId, merchantIds, role })
             .then(async () => {
+              const newUserCustomClaims = (await admin.auth().getUser(userId))
+                .customClaims;
+
+              functions.logger(
+                `newUserCustomClaims of ${userId}: ${newUserCustomClaims}`
+              );
+
               await firestore()
                 .collection("merchant_admins")
                 .doc(merchantId)
