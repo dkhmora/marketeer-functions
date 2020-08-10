@@ -922,7 +922,7 @@ exports.setMerchantAdminToken = functions
           const previousUserCustomClaims = (await admin.auth().getUser(userId))
             .customClaims;
 
-          functions.logger(
+          functions.logger.log(
             `previousUserCustomClaims of ${userId}: ${previousUserCustomClaims}`
           );
 
@@ -933,7 +933,7 @@ exports.setMerchantAdminToken = functions
               const newUserCustomClaims = (await admin.auth().getUser(userId))
                 .customClaims;
 
-              functions.logger(
+              functions.logger.log(
                 `newUserCustomClaims of ${userId}: ${newUserCustomClaims}`
               );
 
