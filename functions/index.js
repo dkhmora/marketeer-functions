@@ -978,3 +978,58 @@ exports.setMerchantAdminToken = functions
       functions.logger.log("No user IDs");
     }
   });
+
+exports.sendMessageNotification = functions
+  .region("asia-northeast1")
+  .firestore.document("orders/{orderId}")
+  .onUpdate(async (change, context) => {
+    const newValue = change.after.data();
+    const previousValue = change.before.data();
+    const {
+      merchantId,
+      userId,
+      merchantOrderNumber,
+      userOrderNumber,
+      userName,
+      storeName,
+    } = newValue;
+
+    if (newValue.messages !== previousValue.messages) {
+      const lastMessage = newValue.messages.slice(-1).pop();
+      const receivingUserData =
+        lastMessage.user._id === merchantId
+          ? (await firestore().collection("users").doc(userId).get()).data()
+          : (
+              await firestore().collection("merchants").doc(merchantId).get()
+            ).data();
+      const receivingUserFcmTokens = receivingUserData.fcmTokens;
+      const receivingUserName =
+        lastMessage.user._id === merchantId ? storeName : userName;
+      const orderNumber =
+        lastMessage.user._id === merchantId
+          ? userOrderNumber
+          : merchantOrderNumber;
+
+      let messageNotifications = [];
+
+      const body = lastMessage.text
+        ? `${receivingUserName}: ${lastMessage.text}`
+        : `${receivingUserName} sent you an image`;
+
+      if (receivingUserFcmTokens) {
+        receivingUserFcmTokens.map((token) => {
+          messageNotifications.push({
+            notification: {
+              title: `New message regarding Order #${orderNumber}`,
+              body,
+            },
+            token,
+          });
+        });
+      }
+
+      messageNotifications.length > 0 && receivingUserFcmTokens.length > 0
+        ? await admin.messaging().sendAll(messageNotifications)
+        : null;
+    }
+  });
