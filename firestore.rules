@@ -45,15 +45,14 @@ service cloud.firestore {
       allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
       allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
       allow update: if userIsSignedUp() && userOwnsDoc(resource.data.userId)
-      && notUpdating('createdAt') && notUpdating('updatedAt')
-      && notUpdating('deliveryAddress') && notUpdating('deliveryCoordinates')
-      && notUpdating('merchantId') && notUpdating('merchantOrderNumber')
+      && notUpdating('createdAt') && notUpdating('deliveryAddress')
+      && notUpdating('deliveryCoordinates') && notUpdating('merchantId')
       && notUpdating('orderStatus') && notUpdating('paymentMethod')
       && notUpdating('quantity') && notUpdating('reviewed')
       && notUpdating('shipping') && notUpdating('totalAmount')
       && notUpdating('userCoordinates') && notUpdating('userId')
       && notUpdating('userName') && notUpdating('userOrderNumber') 
-      && notUpdating('userPhoneNumber');
+      && notUpdating('userPhoneNumber') && notUpdating('merchantOrderNumber');
     }
 
     match /order_items/{orderId} {
