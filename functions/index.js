@@ -1,17 +1,22 @@
 /* eslint-disable promise/no-nesting */
 const functions = require("firebase-functions");
 const firebase = require("firebase");
-const admin = require("firebase-admin");
 const { firestore } = require("firebase-admin");
-const { FB_CONFIG, HERE_API_KEY } = require("./config");
-
-admin.initializeApp();
+const { FB_CONFIG, HERE_API_KEY } = require("./util/config");
+const { db } = require("./util/admin");
 
 firebase.initializeApp({
   ...FB_CONFIG,
 });
 
-const db = admin.firestore();
+const app = require("express")();
+const { checkPayment, result, getPaymentLink } = require("./handlers/payments");
+
+app.post("/payment/getPaymentLink", getPaymentLink);
+app.get("/payment/checkPayment", checkPayment);
+app.get("/payment/result", result);
+
+exports.api = functions.region("asia-northeast1").https.onRequest(app);
 
 exports.signInWithPhoneAndPassword = functions
   .region("asia-northeast1")
@@ -49,7 +54,7 @@ exports.sendPasswordResetLinkToMerchant = functions
         return { s: 400, m: "Bad argument: Email could not be found" };
       }
 
-      if (!user.customClaims.merchantId) {
+      if (!user.customClaims.merchantIds) {
         return {
           s: 400,
           m: "Bad argument: Email is not assigned to any merchant",
