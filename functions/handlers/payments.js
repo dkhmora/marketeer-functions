@@ -1,57 +1,23 @@
 const { db } = require("../util/admin");
-const queryString = require("query-string");
 const functions = require("firebase-functions");
 const { SHA1 } = require("crypto-js");
-const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const { firestore } = require("firebase-admin");
-const client = new SecretManagerServiceClient();
-
-const requestPayment = (secretkey, payload) => {
-  const message = `${payload.merchantId}:${
-    payload.transactionId
-  }:${payload.amount.toFixed(2)}:${payload.currency}:${payload.description}:${
-    payload.email
-  }:${secretkey}`;
-
-  const hash = SHA1(message).toString();
-
-  const request = {
-    merchantid: payload.merchantId,
-    txnid: payload.transactionId,
-    amount: payload.amount.toFixed(2),
-    ccy: payload.currency,
-    description: payload.description,
-    email: payload.email,
-    digest: hash,
-    param1: payload.param1,
-    param2: payload.param2,
-    procid: payload.processId,
-  };
-
-  const url = `https://test.dragonpay.ph/Pay.aspx?${queryString.stringify(
-    request
-  )}`;
-
-  return { url };
-};
+const { getDragonPaySecretKey, requestPayment } = require('../util/dragonpay');
 
 exports.getMerchantPaymentLink = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { amount, processId } = data;
-    const email = context.auth.token.email;
-
     if (!context.auth.token.merchantIds) {
       return { s: 400, m: "User is not authorized for this action" };
     }
 
+    const { amount, processId } = data;
+    const email = context.auth.token.email;
     const merchantId = Object.keys(context.auth.token.merchantIds)[0];
     const { storeName } = (
       await db.collection("merchants").doc(merchantId).get()
     ).data();
-
     const description = `${storeName} Markee Credits Top Up`;
-
     const transactionId = db.collection("merchant_payments").doc().id;
 
     const paymentInput = {
@@ -64,12 +30,7 @@ exports.getMerchantPaymentLink = functions
       processId,
     };
 
-    const [accessResponse] = await client.accessSecretVersion({
-      name: "projects/1549607298/secrets/dragonpay_secret/versions/latest",
-    });
-
-    const secretKey = accessResponse.payload.data.toString("utf8");
-
+    const secretKey = await getDragonPaySecretKey();
     const timeStamp = firestore.Timestamp.now().toMillis();
 
     return await db
@@ -102,11 +63,9 @@ exports.checkPayment = async (req, res) => {
   const merchantPaymentsDoc = db.collection("merchant_payments").doc(txnid);
 
   res.setHeader("content-type", "text/plain");
+
   try {
-    const [accessResponse] = await client.accessSecretVersion({
-      name: "projects/1549607298/secrets/dragonpay_secret/versions/latest",
-    });
-    const secretKey = accessResponse.payload.data.toString("utf8");
+    const secretKey = await getDragonPaySecretKey();
     const confirmMessage = `${txnid}:${refno}:${status}:${message}:${secretKey}`;
     const confirmDigest = SHA1(confirmMessage).toString();
 
