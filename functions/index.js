@@ -10,13 +10,18 @@ firebase.initializeApp({
 });
 
 const app = require("express")();
-const { checkPayment, result, getPaymentLink } = require("./handlers/payments");
+const {
+  checkPayment,
+  result,
+  getMerchantPaymentLink,
+} = require("./handlers/payments");
 
-app.post("/payment/getPaymentLink", getPaymentLink);
-app.get("/payment/checkPayment", checkPayment);
+app.post("/payment/checkPayment", checkPayment);
 app.get("/payment/result", result);
 
 exports.api = functions.region("asia-northeast1").https.onRequest(app);
+
+exports.getMerchantPaymentLink = getMerchantPaymentLink;
 
 exports.signInWithPhoneAndPassword = functions
   .region("asia-northeast1")

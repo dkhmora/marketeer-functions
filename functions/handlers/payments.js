@@ -3,6 +3,7 @@ const queryString = require("query-string");
 const functions = require("firebase-functions");
 const { SHA1 } = require("crypto-js");
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
+const { firestore } = require("firebase-admin");
 const client = new SecretManagerServiceClient();
 
 const requestPayment = (secretkey, payload) => {
@@ -34,56 +35,101 @@ const requestPayment = (secretkey, payload) => {
   return { url };
 };
 
-exports.getPaymentLink = async (req, res) => {
-  const { amount, description, email, processId } = req.body;
+exports.getMerchantPaymentLink = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { amount, processId } = data;
+    const email = context.auth.token.email;
 
-  const transactionId = db.collection("payments").doc().id;
+    if (!context.auth.token.merchantIds) {
+      return { s: 400, m: "User is not authorized for this action" };
+    }
 
-  const paymentInput = {
-    merchantId: "MARKETEERPH",
-    transactionId,
-    amount,
-    currency: "PHP",
-    description,
-    email,
-    processId,
-  };
+    const merchantId = Object.keys(context.auth.token.merchantIds)[0];
+    const { storeName } = (
+      await db.collection("merchants").doc(merchantId).get()
+    ).data();
 
-  const [accessResponse] = await client.accessSecretVersion({
-    name: "projects/1549607298/secrets/dragonpay_secret/versions/latest",
+    const description = `${storeName} Markee Credits Top Up`;
+
+    const transactionId = db.collection("merchant_payments").doc().id;
+
+    const paymentInput = {
+      merchantId: "MARKETEERPH",
+      transactionId,
+      amount,
+      currency: "PHP",
+      description,
+      email,
+      processId,
+    };
+
+    const [accessResponse] = await client.accessSecretVersion({
+      name: "projects/1549607298/secrets/dragonpay_secret/versions/latest",
+    });
+
+    const secretKey = accessResponse.payload.data.toString("utf8");
+
+    const timeStamp = firestore.Timestamp.now().toMillis();
+
+    return await db
+      .collection("merchant_payments")
+      .doc(transactionId)
+      .set({
+        transactionId,
+        amount,
+        merchantId,
+        currency: "PHP",
+        description,
+        email,
+        processId,
+        status: "U",
+        createdAt: timeStamp,
+        updatedAt: timeStamp,
+      })
+      .then(() => {
+        return { s: 200, m: requestPayment(secretKey, paymentInput) };
+      })
+      .catch((err) => {
+        functions.logger.error(err);
+
+        return { s: 400, m: err.message };
+      });
   });
 
-  const secretKey = accessResponse.payload.data.toString("utf8");
+exports.checkPayment = async (req, res) => {
+  const { txnid, status, digest, refno, message } = req.body;
+  const merchantPaymentsDoc = db.collection("merchant_payments").doc(txnid);
 
-  res.status(200).json(requestPayment(secretKey, paymentInput));
-
-  /*
-  return await db
-    .collection("payments")
-    .doc(txnid)
-    .set(paymentRequest)
-    .then(() => {
-      return requestPayment(secretKey, paymentInput);
-    })
-    .then(() => {
-      return functions.logger.log("executePayment success");
-    })
-    .catch((err) => {
-      functions.logger.error(err);
-
-      return { s: 400, m: err.message };
+  res.setHeader("content-type", "text/plain");
+  try {
+    const [accessResponse] = await client.accessSecretVersion({
+      name: "projects/1549607298/secrets/dragonpay_secret/versions/latest",
     });
-    */
-};
+    const secretKey = accessResponse.payload.data.toString("utf8");
+    const confirmMessage = `${txnid}:${refno}:${status}:${message}:${secretKey}`;
+    const confirmDigest = SHA1(confirmMessage).toString();
 
-exports.checkPayment = (req, res) => {
-  functions.logger.log("checkPayment", req.body);
+    if (digest !== confirmDigest) {
+      throw new Error("Digest mismatch. Please try again.");
+    } else {
+      await merchantPaymentsDoc.update({
+        status,
+        refno,
+        updatedAt: firestore.Timestamp.now().toMillis(),
+      });
+    }
 
-  return res.status(200).json(req.body);
+    return res.send("result=OK");
+  } catch (error) {
+    functions.logger.error(error);
+
+    return res.status(400).json({
+      m: error,
+    });
+  }
 };
 
 exports.result = (req, res) => {
-  functions.logger.log("result", req.body);
-
-  return res.status(200).json(req.body);
+  return res.status(200).json({ m: "Payment success!" });
 };
