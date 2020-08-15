@@ -3,7 +3,7 @@ const functions = require("firebase-functions");
 const firebase = require("firebase");
 const { firestore } = require("firebase-admin");
 const { FB_CONFIG, HERE_API_KEY } = require("./util/config");
-const { db } = require("./util/admin");
+const { db, admin } = require("./util/admin");
 
 firebase.initializeApp({
   ...FB_CONFIG,
@@ -30,17 +30,23 @@ exports.signInWithPhoneAndPassword = functions
     if (phoneNumber === undefined) {
       return { s: 400, m: "Bad argument: no phone number" };
     }
-    const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
-    const pass = data.password;
+
     try {
+      const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
+
+      functions.logger.log(user, data);
+      const pass = data.password;
+
       await firebase.auth().signInWithEmailAndPassword(user.email, pass);
+
+      const token = await admin
+        .auth()
+        .createCustomToken(user.uid, { devClaim: true });
+
+      return { s: 200, t: token };
     } catch (e) {
-      return { s: 400, m: "Wrong password" };
+      return { s: 400, m: "Wrong phone number or password. Please try again." };
     }
-    const token = await admin
-      .auth()
-      .createCustomToken(user.uid, { devClaim: true }); //developer claims, optional param
-    return { s: 200, t: token };
   });
 
 exports.sendPasswordResetLinkToMerchant = functions
