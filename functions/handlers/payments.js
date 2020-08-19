@@ -2,7 +2,7 @@ const { db } = require("../util/admin");
 const functions = require("firebase-functions");
 const { SHA1 } = require("crypto-js");
 const { firestore } = require("firebase-admin");
-const { getDragonPaySecretKey, requestPayment } = require('../util/dragonpay');
+const { getDragonPaySecretKey, requestPayment } = require("../util/dragonpay");
 
 exports.getMerchantPaymentLink = functions
   .region("asia-northeast1")
@@ -11,8 +11,7 @@ exports.getMerchantPaymentLink = functions
       return { s: 400, m: "User is not authorized for this action" };
     }
 
-    const { amount, processId } = data;
-    const email = context.auth.token.email;
+    const { amount, email, processId } = data;
     const merchantId = Object.keys(context.auth.token.merchantIds)[0];
     const { storeName } = (
       await db.collection("merchants").doc(merchantId).get()
@@ -72,6 +71,24 @@ exports.checkPayment = async (req, res) => {
     if (digest !== confirmDigest) {
       throw new Error("Digest mismatch. Please try again.");
     } else {
+      const merchantPaymentData = (await merchantPaymentsDoc.get()).data();
+      const { merchantId, amount } = merchantPaymentData;
+      const merchantDoc = db.collection("merchants").doc(merchantId);
+      const merchantData = (await merchantDoc.get()).data();
+      const { creditData } = merchantData;
+      const newCredits = creditData.credits + amount;
+
+      await merchantDoc.set(
+        {
+          creditData: {
+            credits: firestore.FieldValue.increment(amount),
+            creditThresholdReached:
+              newCredits >= creditData.creditThreshold ? false : true,
+          },
+        },
+        { merge: true }
+      );
+
       await merchantPaymentsDoc.update({
         status,
         refno,
@@ -89,6 +106,43 @@ exports.checkPayment = async (req, res) => {
   }
 };
 
-exports.result = (req, res) => {
-  return res.status(200).json({ m: "Payment success!" });
+exports.result = async (req, res) => {
+  const { txnid, status, digest, refno, message } = req.query;
+  const secretKey = await getDragonPaySecretKey();
+  const confirmMessage = `${txnid}:${refno}:${status}:${message}:${secretKey}`;
+  const confirmDigest = SHA1(confirmMessage).toString();
+
+  if (digest !== confirmDigest) {
+    throw new Error("Digest mismatch. Please try again.");
+  } else {
+    switch (status) {
+      case "S":
+        res.redirect("https://marketeer.ph/app/merchant/payment/success");
+        break;
+      case "F":
+        res.redirect("https://marketeer.ph/app/merchant/payment/failure");
+        break;
+      case "P":
+        res.redirect("https://marketeer.ph/app/merchant/payment/pending");
+        break;
+      case "U":
+        res.redirect("https://marketeer.ph/app/merchant/payment/unknown");
+        break;
+      case "R":
+        res.redirect("https://marketeer.ph/app/merchant/payment/refund");
+        break;
+      case "K":
+        res.redirect("https://marketeer.ph/app/merchant/payment/chargeback");
+        break;
+      case "V":
+        res.redirect("https://marketeer.ph/app/merchant/payment/void");
+        break;
+      case "A":
+        res.redirect("https://marketeer.ph/app/merchant/payment/authorized");
+        break;
+      default:
+        res.redirect("https://marketeer.ph/app/merchant/payment/error");
+        break;
+    }
+  }
 };
