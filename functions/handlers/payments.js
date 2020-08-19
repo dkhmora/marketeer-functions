@@ -2,7 +2,11 @@ const { db } = require("../util/admin");
 const functions = require("firebase-functions");
 const { SHA1 } = require("crypto-js");
 const { firestore } = require("firebase-admin");
-const { getDragonPaySecretKey, requestPayment } = require("../util/dragonpay");
+const {
+  getDragonPaySecretKey,
+  requestPayment,
+  payment_methods,
+} = require("../util/dragonpay");
 
 exports.getMerchantPaymentLink = functions
   .region("asia-northeast1")
@@ -12,6 +16,25 @@ exports.getMerchantPaymentLink = functions
     }
 
     const { amount, email, processId } = data;
+    const { fixedFee, percentageFee } = payment_methods[processId];
+
+    const pFee = percentageFee
+      ? percentageFee
+        ? 1 - percentageFee * 0.01
+        : 1
+      : 1;
+    const fFee = fixedFee ? fixedFee : 0;
+
+    const topUpAmount = amount / pFee + fFee;
+    const roundedTopUpAmount =
+      Math.round((topUpAmount + Number.EPSILON) * 100) / 100;
+
+    functions.logger.log(
+      `amount: ${amount}, `,
+      `topUpAmount: ${topUpAmount}, `,
+      `roundedTopUpAmount: ${roundedTopUpAmount}`
+    );
+
     const merchantId = Object.keys(context.auth.token.merchantIds)[0];
     const { storeName } = (
       await db.collection("merchants").doc(merchantId).get()
@@ -37,7 +60,8 @@ exports.getMerchantPaymentLink = functions
       .doc(transactionId)
       .set({
         transactionId,
-        amount,
+        paymentAmount: amount,
+        topUpAmount: roundedTopUpAmount,
         merchantId,
         currency: "PHP",
         description,
@@ -59,7 +83,7 @@ exports.getMerchantPaymentLink = functions
 
 exports.checkPayment = async (req, res) => {
   const { txnid, status, digest, refno, message } = req.body;
-  const merchantPaymentsDoc = db.collection("merchant_payments").doc(txnid);
+  const transactionDoc = db.collection("merchant_payments").doc(txnid);
 
   res.setHeader("content-type", "text/plain");
 
@@ -71,25 +95,27 @@ exports.checkPayment = async (req, res) => {
     if (digest !== confirmDigest) {
       throw new Error("Digest mismatch. Please try again.");
     } else {
-      const merchantPaymentData = (await merchantPaymentsDoc.get()).data();
-      const { merchantId, amount } = merchantPaymentData;
+      const merchantPaymentData = (await transactionDoc.get()).data();
+      const { merchantId, topUpAmount } = merchantPaymentData;
       const merchantDoc = db.collection("merchants").doc(merchantId);
       const merchantData = (await merchantDoc.get()).data();
       const { creditData } = merchantData;
-      const newCredits = creditData.credits + amount;
+      const newCredits = creditData.credits + topUpAmount;
 
-      await merchantDoc.set(
-        {
-          creditData: {
-            credits: firestore.FieldValue.increment(amount),
-            creditThresholdReached:
-              newCredits >= creditData.creditThreshold ? false : true,
+      if (status === "S") {
+        await merchantDoc.set(
+          {
+            creditData: {
+              credits: firestore.FieldValue.increment(topUpAmount),
+              creditThresholdReached:
+                newCredits >= creditData.creditThreshold ? false : true,
+            },
           },
-        },
-        { merge: true }
-      );
+          { merge: true }
+        );
+      }
 
-      await merchantPaymentsDoc.update({
+      await transactionDoc.update({
         status,
         refno,
         updatedAt: firestore.Timestamp.now().toMillis(),
