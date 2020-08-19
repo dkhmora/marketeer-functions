@@ -1,0 +1,79 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function userIsAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userId() {
+      return request.auth.uid;
+    }
+
+    function userIsMerchantAdmin(merchantId) {
+      return request.auth.token.merchantIds[merchantId] || request.auth.token.merchantId == merchantId;
+    }
+
+    function userIsSignedUp() {
+      return userIsAuthenticated() && request.auth.token.phone_number != null;
+    }
+
+    function userOwnsDoc(ownerUserId) {
+      return ownerUserId == userId();
+    }
+
+    function notUpdating(field) {
+      return !(field in request.resource.data)
+        || resource.data[field] == request.resource.data[field]
+    }
+
+    match /merchants/{merchantId} {
+      allow update, delete: if userIsMerchantAdmin(merchantId)
+      && notUpdating('creditData') && notUpdating('visibleToPublic')
+      && notUpdating('storeCategory') && notUpdating('storeName')
+      && notUpdating('storeLocation');
+      allow read: if userIsAuthenticated();
+    }
+
+    match /merchants/{merchantId}/items/{itemPageIds} {
+      allow read, write, delete: if userIsMerchantAdmin(merchantId);
+      allow read: if userIsAuthenticated();
+      allow read: if userIsSignedUp();
+    }
+
+    match /orders/{orderId} {
+      allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
+      allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
+      allow update: if userIsSignedUp() && userOwnsDoc(resource.data.userId)
+      && notUpdating('createdAt') && notUpdating('deliveryAddress')
+      && notUpdating('deliveryCoordinates') && notUpdating('merchantId')
+      && notUpdating('orderStatus') && notUpdating('paymentMethod')
+      && notUpdating('quantity') && notUpdating('reviewed')
+      && notUpdating('shipping') && notUpdating('totalAmount')
+      && notUpdating('userCoordinates') && notUpdating('userId')
+      && notUpdating('userName') && notUpdating('userOrderNumber') 
+      && notUpdating('userPhoneNumber') && notUpdating('merchantOrderNumber');
+    }
+
+    match /order_items/{orderId} {
+      allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
+      allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
+    }
+
+    match /merchants/{merchantId}/order_reviews/{allPages=**} {
+      allow read: if userIsAuthenticated();
+    }
+
+    match /users/{userId} {
+      allow read, write: if userOwnsDoc(userId);
+    }
+
+    match /user_carts/{userId} {
+      allow read, write: if userOwnsDoc(userId);
+    }
+
+    match /application/{config} {
+      allow read: if userIsAuthenticated();
+    }
+  }
+}

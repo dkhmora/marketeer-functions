@@ -1,7 +1,31 @@
+rules_version = '2';
+
 service firebase.storage {
   match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if request.auth!=null;
+    function userIsAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userOwnsFile(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function userIsMerchantAdmin(merchantId) {
+      return request.auth.token.merchantIds[merchantId] || request.auth.token.merchantId == merchantId;
+    }
+
+    match /images/merchants/{merchantId}/{allPaths=**} {
+      allow write: if userIsMerchantAdmin(merchantId);
+      allow read: if userIsAuthenticated();
+    }
+
+    match /images/orders/{orderId}/order_chat/{fileName} {
+      allow read: if userIsMerchantAdmin(resource.metadata.merchantId) || userOwnsFile(resource.metadata.customerUserId);
+      allow create: if userIsMerchantAdmin(request.resource.metadata.merchantId) || userOwnsFile(request.resource.metadata.customerUserId);
+    }
+
+    match /images/store_categories/{fileName} {
+      allow read: if userIsAuthenticated();
     }
   }
 }
