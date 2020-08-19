@@ -1,17 +1,27 @@
 /* eslint-disable promise/no-nesting */
 const functions = require("firebase-functions");
 const firebase = require("firebase");
-const admin = require("firebase-admin");
 const { firestore } = require("firebase-admin");
-const { FB_CONFIG, HERE_API_KEY } = require("./config");
-
-admin.initializeApp();
+const { FB_CONFIG, HERE_API_KEY } = require("./util/config");
+const { db, admin } = require("./util/admin");
 
 firebase.initializeApp({
   ...FB_CONFIG,
 });
 
-const db = admin.firestore();
+const app = require("express")();
+const {
+  checkPayment,
+  result,
+  getMerchantPaymentLink,
+} = require("./handlers/payments");
+
+app.post("/payment/checkPayment", checkPayment);
+app.get("/payment/result", result);
+
+exports.api = functions.region("asia-northeast1").https.onRequest(app);
+
+exports.getMerchantPaymentLink = getMerchantPaymentLink;
 
 exports.signInWithPhoneAndPassword = functions
   .region("asia-northeast1")
@@ -20,17 +30,23 @@ exports.signInWithPhoneAndPassword = functions
     if (phoneNumber === undefined) {
       return { s: 400, m: "Bad argument: no phone number" };
     }
-    const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
-    const pass = data.password;
+
     try {
+      const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
+
+      functions.logger.log(user, data);
+      const pass = data.password;
+
       await firebase.auth().signInWithEmailAndPassword(user.email, pass);
+
+      const token = await admin
+        .auth()
+        .createCustomToken(user.uid, { devClaim: true });
+
+      return { s: 200, t: token };
     } catch (e) {
-      return { s: 400, m: "Wrong password" };
+      return { s: 400, m: "Wrong phone number or password. Please try again." };
     }
-    const token = await admin
-      .auth()
-      .createCustomToken(user.uid, { devClaim: true }); //developer claims, optional param
-    return { s: 200, t: token };
   });
 
 exports.sendPasswordResetLinkToMerchant = functions
@@ -49,7 +65,7 @@ exports.sendPasswordResetLinkToMerchant = functions
         return { s: 400, m: "Bad argument: Email could not be found" };
       }
 
-      if (!user.customClaims.merchantId) {
+      if (!user.customClaims.merchantIds) {
         return {
           s: 400,
           m: "Bad argument: Email is not assigned to any merchant",
