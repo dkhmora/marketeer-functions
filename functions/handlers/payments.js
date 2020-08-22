@@ -50,6 +50,8 @@ exports.getMerchantPaymentLink = functions
       description,
       email,
       processId,
+      param1: "merchant_topup",
+      param2: merchantId,
     };
 
     const secretKey = await getDragonPaySecretKey();
@@ -82,8 +84,12 @@ exports.getMerchantPaymentLink = functions
   });
 
 exports.checkPayment = async (req, res) => {
-  const { txnid, status, digest, refno, message } = req.body;
-  const transactionDoc = db.collection("merchant_payments").doc(txnid);
+  const { txnid, status, digest, refno, message, param1, param2 } = req.body;
+  let transactionDoc = null;
+
+  if (param1 === "merchant_topup") {
+    transactionDoc = db.collection("merchant_payments").doc(txnid);
+  }
 
   res.setHeader("content-type", "text/plain");
 
