@@ -206,6 +206,9 @@ exports.changeOrderStatus = functions
                       body: `"Please top up before reaching your Markee credit threshold limit of ${creditThreshold} in order to receive more orders.
                 If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
                     },
+                    data: {
+                      type: "markee_credits",
+                    },
                     token,
                   });
                 });
@@ -275,6 +278,10 @@ exports.changeOrderStatus = functions
                 notification: {
                   title: notificationTitle,
                   body: notificationBody,
+                },
+                data: {
+                  type: "order_update",
+                  orderId,
                 },
                 token,
               });
@@ -387,6 +394,10 @@ exports.cancelOrder = functions
               notification: {
                 title: notificationTitle,
                 body: notificationBody,
+              },
+              data: {
+                type: "order_update",
+                orderId,
               },
               token,
             });
@@ -567,6 +578,13 @@ exports.placeOrder = functions
                     console.error("Error: User does not exist!");
                   }
 
+                  if (
+                    !storeDetails.visibleToPublic ||
+                    storeDetails.vacationMode
+                  ) {
+                    throw new Error(`Sorry, ${storeDetails.storeName} is currently on vacation. Please try again later.`);
+                  }
+
                   const currentUserOrderNumber = userData.orderNumber
                     ? userData.orderNumber
                     : 0;
@@ -642,15 +660,15 @@ exports.placeOrder = functions
 
                   const ordersRef = firestore().collection("orders");
                   const orderItemsRef = firestore().collection("order_items");
-                  const id = ordersRef.doc().id;
+                  const orderId = ordersRef.doc().id;
 
                   // Place order
-                  transaction.set(orderItemsRef.doc(id), {
+                  transaction.set(orderItemsRef.doc(orderId), {
                     items: orderItems,
                     merchantId,
                     userId,
                   });
-                  transaction.set(ordersRef.doc(id), {
+                  transaction.set(ordersRef.doc(orderId), {
                     ...orderDetails,
                     messages: [],
                   });
@@ -691,10 +709,10 @@ exports.placeOrder = functions
                     [merchantId]: firestore.FieldValue.delete(),
                   });
 
-                  return { orderDetails, storeDetails };
+                  return { orderDetails, storeDetails, orderId };
                 });
             })
-            .then(async ({ orderDetails, storeDetails }) => {
+            .then(async ({ orderDetails, storeDetails, orderId }) => {
               // Send Order Notification to merchant
               let fcmTokens = [];
 
@@ -709,6 +727,10 @@ exports.placeOrder = functions
                     notification: {
                       title: "You've got a new order!",
                       body: `Order # ${merchantOrderNumber}; Order Total: ${subTotal}`,
+                    },
+                    data: {
+                      type: "new_order",
+                      orderId,
                     },
                     token,
                   });
@@ -999,6 +1021,7 @@ exports.sendMessageNotification = functions
   .region("asia-northeast1")
   .firestore.document("orders/{orderId}")
   .onUpdate(async (change, context) => {
+    const orderId = change.after.id;
     const newValue = change.after.data();
     const previousValue = change.before.data();
     const {
@@ -1010,7 +1033,7 @@ exports.sendMessageNotification = functions
       storeName,
     } = newValue;
 
-    if (newValue.messages !== previousValue.messages) {
+    if (newValue.messages.length !== previousValue.messages.length) {
       const lastMessage = newValue.messages.slice(-1).pop();
       const receivingUserData =
         lastMessage.user._id === merchantId
@@ -1038,6 +1061,10 @@ exports.sendMessageNotification = functions
             notification: {
               title: `New message regarding Order #${orderNumber}`,
               body,
+            },
+            data: {
+              type: "order_message",
+              orderId,
             },
             token,
           });
