@@ -14,14 +14,29 @@ const {
   checkPayment,
   result,
   getMerchantPaymentLink,
+  getAvailablePaymentProcessors,
 } = require("./handlers/payments");
 
 app.post("/payment/checkPayment", checkPayment);
 app.get("/payment/result", result);
 
+// ** Dragonpay Test **
+const {
+  checkPaymentTest,
+  resultTest,
+  getMerchantPaymentLinkTest,
+} = require("./handlers/payments_test");
+
+app.post("/payment/checkPaymentTest", checkPaymentTest);
+app.get("/payment/resultTest", resultTest);
+
+exports.getMerchantPaymentLinkTest = getMerchantPaymentLinkTest;
+// ** Dragonpay Test **
+
 exports.api = functions.region("asia-northeast1").https.onRequest(app);
 
 exports.getMerchantPaymentLink = getMerchantPaymentLink;
+exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
 
 exports.signInWithPhoneAndPassword = functions
   .region("asia-northeast1")
@@ -582,7 +597,9 @@ exports.placeOrder = functions
                     !storeDetails.visibleToPublic ||
                     storeDetails.vacationMode
                   ) {
-                    throw new Error(`Sorry, ${storeDetails.storeName} is currently on vacation. Please try again later.`);
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} is currently on vacation. Please try again later.`
+                    );
                   }
 
                   const currentUserOrderNumber = userData.orderNumber

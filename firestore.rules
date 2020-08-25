@@ -41,6 +41,10 @@ service cloud.firestore {
       allow read: if userIsSignedUp();
     }
 
+    match /merchant_payments/{paymentId} {
+      allow read: if userIsMerchantAdmin(resource.data.merchantId);
+    }
+
     match /orders/{orderId} {
       allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
       allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
