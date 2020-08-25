@@ -15,6 +15,7 @@
     "node": "10"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^4.2.0",
     "@google-cloud/secret-manager": "^3.1.0",
     "axios": "^0.19.2",
     "crypto-js": "^4.0.0",

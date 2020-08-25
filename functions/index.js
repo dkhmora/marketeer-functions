@@ -4,6 +4,8 @@ const firebase = require("firebase");
 const { firestore } = require("firebase-admin");
 const { FB_CONFIG, HERE_API_KEY } = require("./util/config");
 const { db, admin } = require("./util/admin");
+const firestoreGCP = require("@google-cloud/firestore");
+const client = new firestoreGCP.v1.FirestoreAdminClient();
 
 firebase.initializeApp({
   ...FB_CONFIG,
@@ -33,10 +35,36 @@ app.get("/payment/resultTest", resultTest);
 exports.getMerchantPaymentLinkTest = getMerchantPaymentLinkTest;
 // ** Dragonpay Test **
 
-exports.api = functions.region("asia-northeast1").https.onRequest(app);
-
+// ** Dragonpay PRODUCTION **
 exports.getMerchantPaymentLink = getMerchantPaymentLink;
 exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
+// ** Dragonpay PRODUCTION **
+
+exports.api = functions.region("asia-northeast1").https.onRequest(app);
+
+exports.scheduledFirestoreExport = functions
+  .region("asia-northeast1")
+  .pubsub.schedule("every 24 hours")
+  .onRun((context) => {
+    const bucket = "gs://marketeer-backup-bucket";
+    const projectId = process.env.GCP_PROJECT || process.env.GCLOUD_PROJECT;
+    const databaseName = client.databasePath(projectId, "(default)");
+
+    return client
+      .exportDocuments({
+        name: databaseName,
+        outputUriPrefix: bucket,
+        collectionIds: [],
+      })
+      .then((responses) => {
+        const response = responses[0];
+        return functions.logger.log(`Operation Name: ${response["name"]}`);
+      })
+      .catch((err) => {
+        functions.logger.error(err);
+        throw new Error("Export operation failed");
+      });
+  });
 
 exports.signInWithPhoneAndPassword = functions
   .region("asia-northeast1")
@@ -466,7 +494,7 @@ exports.getAddressFromCoordinates = functions
             }
           })
           .catch((e) => {
-            console.log("Error in getAddressFromCoordinates", e);
+            functions.logger.log("Error in getAddressFromCoordinates", e);
             resolve();
           });
       });
@@ -584,13 +612,13 @@ exports.placeOrder = functions
                   if (userDoc.exists) {
                     userData = userDoc.data();
                   } else {
-                    console.error("Error: User does not exist!");
+                    functions.logger.error("Error: User does not exist!");
                   }
 
                   if (merchantDoc.exists) {
                     storeDetails = merchantDoc.data();
                   } else {
-                    console.error("Error: User does not exist!");
+                    functions.logger.error("Error: User does not exist!");
                   }
 
                   if (
