@@ -22,11 +22,15 @@ exports.getAvailablePaymentProcessors = functions
       "https://gw.dragonpay.ph/DragonPayWebService/MerchantService.asmx";
     const requestHeaders = {
       "Content-Type": "text/xml; charset=utf-8",
-      SOAPAction: "http://api.dragonpay.ph/GetProcessors",
+      SOAPAction: "http://api.dragonpay.ph/GetAvailableProcessors",
     };
     const xml = `<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
                   <soap:Body>
-                    <GetProcessors xmlns="http://api.dragonpay.ph/" />
+                    <GetAvailableProcessors xmlns="http://api.dragonpay.ph/">
+                      <merchantId>${merchantId}</merchantId>
+                      <password>${password}</password>
+                      <amount>${amount}</amount>
+                    </GetAvailableProcessors>
                   </soap:Body>
                 </soap:Envelope>`;
 
@@ -41,8 +45,8 @@ exports.getAvailablePaymentProcessors = functions
       await parser.parseStringPromise(body).then((result) => {
         return result;
       })
-    )["soap:Envelope"]["soap:Body"][0]["GetProcessorsResponse"][0][
-      "GetProcessorsResult"
+    )["soap:Envelope"]["soap:Body"][0]["GetAvailableProcessorsResponse"][0][
+      "GetAvailableProcessorsResult"
     ][0]["ProcessorInfo"];
 
     let finalJson = {};
@@ -71,6 +75,7 @@ exports.getAvailablePaymentProcessors = functions
         endTime,
         hasAltRefNo,
         hasManualEnrollment,
+        hasTxnPwd,
       } = item;
 
       finalJson[procId[0]] = {
@@ -95,6 +100,7 @@ exports.getAvailablePaymentProcessors = functions
         endTime: endTime[0],
         hasAltRefNo: hasAltRefNo[0] === "true",
         hasManualEnrollment: hasManualEnrollment[0] === "true",
+        hasTxnPwd: hasTxnPwd[0] === "true",
       };
     });
 
@@ -113,19 +119,15 @@ exports.getMerchantPaymentLink = functions
       return { s: 400, m: "User is not authorized for this action" };
     }
 
-    const { amount, email, processId } = data;
-    const { fixedFee, percentageFee } = payment_methods[processId];
+    const { topUpAmount, email, processId } = data;
+    const minAmount = 1000;
 
-    const pFee = percentageFee
-      ? percentageFee
-        ? 1 - percentageFee * 0.01
-        : 1
-      : 1;
-    const fFee = fixedFee ? fixedFee : 0;
-
-    const topUpAmount = amount / pFee + fFee;
-    const roundedTopUpAmount =
-      Math.round((topUpAmount + Number.EPSILON) * 100) / 100;
+    if (topUpAmount < minAmount) {
+      return {
+        s: 400,
+        m: "The minimimum top up amount is 1000. Please try again.",
+      };
+    }
 
     const merchantId = Object.keys(context.auth.token.merchantIds)[0];
     const { storeName } = (
@@ -137,7 +139,7 @@ exports.getMerchantPaymentLink = functions
     const paymentInput = {
       merchantId: "MARKETEERPH",
       transactionId,
-      amount,
+      amount: topUpAmount,
       currency: "PHP",
       description,
       email,
@@ -154,8 +156,8 @@ exports.getMerchantPaymentLink = functions
       .doc(transactionId)
       .set({
         transactionId,
-        paymentAmount: amount,
-        topUpAmount: roundedTopUpAmount,
+        paymentAmount: topUpAmount,
+        topUpAmount,
         merchantId,
         currency: "PHP",
         description,
