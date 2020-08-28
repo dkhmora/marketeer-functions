@@ -630,6 +630,12 @@ exports.placeOrder = functions
                     );
                   }
 
+                  if (storeDetails.creditData.creditThresholdReached) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    );
+                  }
+
                   const currentUserOrderNumber = userData.orderNumber
                     ? userData.orderNumber
                     : 0;
