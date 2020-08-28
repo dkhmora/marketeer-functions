@@ -397,6 +397,7 @@ exports.cancelOrder = functions
             ) {
               throw new Error(
                 `Sorry, Order #${
+                  // eslint-disable-next-line promise/always-return
                   merchantId ? merchantOrderNumber : userOrderNumber
                 } cannot be cancelled. Please contact Marketeer Support if you think there may be something wrong. Thank you.`
               );
