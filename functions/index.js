@@ -618,7 +618,9 @@ exports.placeOrder = functions
                   if (merchantDoc.exists) {
                     storeDetails = merchantDoc.data();
                   } else {
-                    functions.logger.error("Error: User does not exist!");
+                    throw new Error(
+                      `Sorry, a store you ordered from does not exist. Please try again or place another order from another store.`
+                    );
                   }
 
                   if (
