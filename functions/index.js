@@ -349,7 +349,7 @@ exports.cancelOrder = functions
     const userId = context.auth.uid;
     const merchantId = context.auth.token.merchantId;
 
-    if (!userId || !merchantId) {
+    if (!userId) {
       return { s: 400, m: "Error: User is not authorized" };
     }
 
@@ -361,65 +361,73 @@ exports.cancelOrder = functions
       return await db
         .runTransaction(async (transaction) => {
           const orderRef = firestore().collection("orders").doc(orderId);
-          const merchantRef = firestore()
-            .collection("merchants")
-            .doc(merchantId);
 
-          return await transaction
-            .getAll(orderRef, merchantRef)
-            .then((documents) => {
-              const orderData = documents[0].data();
-              const merchantData = documents[1].data();
+          return await transaction.get(orderRef).then((document) => {
+            const orderData = document.data();
 
-              if (orderData.merchantId !== merchantId) {
-                throw new Error("Order does not correspond with merchant id");
+            if (merchantId && orderData.merchantId !== merchantId) {
+              throw new Error("Order does not correspond with merchant id");
+            }
+
+            if (!merchantId && userId && orderData.userId !== userId) {
+              throw new Error("Order does not correspond with current user");
+            }
+
+            const {
+              orderStatus,
+              paymentMethod,
+              merchantOrderNumber,
+              userOrderNumber,
+            } = orderData;
+
+            let newOrderStatus = {};
+            let currentStatus;
+
+            Object.keys(orderStatus).map((item, index) => {
+              if (orderStatus[`${item}`].status) {
+                currentStatus = item;
               }
-
-              const { orderStatus } = orderData;
-
-              let newOrderStatus = {};
-              let currentStatus;
-
-              Object.keys(orderStatus).map((item, index) => {
-                if (orderStatus[`${item}`].status) {
-                  currentStatus = item;
-                }
-              });
-
-              if (
-                currentStatus === "paid" ||
-                currentStatus === "shipped" ||
-                currentStatus === "completed" ||
-                currentStatus === "cancelled"
-              ) {
-                throw new Error(
-                  "Error: Order is not pending or unpaid, and thus cannot be cancelled"
-                );
-              }
-
-              newOrderStatus = orderStatus;
-
-              newOrderStatus[`${currentStatus}`].status = false;
-
-              const nowTimestamp = firestore.Timestamp.now().toMillis();
-
-              newOrderStatus.cancelled = {
-                status: true,
-                reason: cancelReason,
-                updatedAt: nowTimestamp,
-              };
-
-              transaction.update(orderRef, {
-                orderStatus: newOrderStatus,
-                updatedAt: nowTimestamp,
-              });
-
-              return { orderData, merchantData };
             });
+
+            if (
+              (currentStatus === "paid" && paymentMethod !== "COD") ||
+              currentStatus === "shipped" ||
+              currentStatus === "completed" ||
+              currentStatus === "cancelled"
+            ) {
+              throw new Error(
+                `Sorry, Order #${
+                  merchantId ? merchantOrderNumber : userOrderNumber
+                } cannot be cancelled. Please contact Marketeer Support if you think there may be something wrong. Thank you.`
+              );
+            }
+
+            newOrderStatus = orderStatus;
+
+            newOrderStatus[`${currentStatus}`].status = false;
+
+            const nowTimestamp = firestore.Timestamp.now().toMillis();
+
+            newOrderStatus.cancelled = {
+              status: true,
+              reason: cancelReason,
+              by: merchantId ? merchantId : userId,
+              updatedAt: nowTimestamp,
+            };
+
+            transaction.update(orderRef, {
+              orderStatus: newOrderStatus,
+              updatedAt: nowTimestamp,
+            });
+
+            return { orderData };
+          });
         })
-        .then(async ({ orderData, merchantData }) => {
+        .then(async ({ orderData }) => {
           const { userId, userOrderNumber } = orderData;
-          const { storeName } = merchantData;
+          const { storeName } = (
+            await firestore().collection("merchants").doc(merchantId).get()
+          ).data();
 
           const userData = (
             await db.collection("users").doc(userId).get()
