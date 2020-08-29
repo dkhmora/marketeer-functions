@@ -412,7 +412,7 @@ exports.cancelOrder = functions
             newOrderStatus.cancelled = {
               status: true,
               reason: cancelReason,
-              by: merchantId ? merchantId : userId,
+              byShopper: merchantId ? false : true,
               updatedAt: nowTimestamp,
             };
 
