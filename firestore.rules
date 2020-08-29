@@ -27,6 +27,10 @@ service cloud.firestore {
         || resource.data[field] == request.resource.data[field]
     }
 
+    function documentIsOlderThan(days, docTime) {
+      return request.time.toMillis() > docTime + 86400000 * days
+    }
+
     match /merchants/{merchantId} {
       allow update, delete: if userIsMerchantAdmin(merchantId)
       && notUpdating('creditData') && notUpdating('visibleToPublic')
@@ -46,8 +50,8 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
-      allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
+      allow read: if (userIsSignedUp() && userOwnsDoc(resource.data.userId))
+      || userIsMerchantAdmin(resource.data.merchantId);
       allow update: if userIsSignedUp() && userOwnsDoc(resource.data.userId)
       && notUpdating('createdAt') && notUpdating('deliveryAddress')
       && notUpdating('deliveryCoordinates') && notUpdating('merchantId')
@@ -56,7 +60,12 @@ service cloud.firestore {
       && notUpdating('shipping') && notUpdating('totalAmount')
       && notUpdating('userCoordinates') && notUpdating('userId')
       && notUpdating('userName') && notUpdating('userOrderNumber') 
-      && notUpdating('userPhoneNumber') && notUpdating('merchantOrderNumber');
+      && notUpdating('userPhoneNumber') && notUpdating('merchantOrderNumber')
+      && !(resource.data.orderStatus.completed.status && documentIsOlderThan(7, resource.data.orderStatus.completed.updatedAt))
+      && !resource.data.orderStatus.cancelled.status;
+      allow update: if userIsMerchantAdmin(resource.data.merchantId)
+      && !(resource.data.orderStatus.completed.status && documentIsOlderThan(7, resource.data.orderStatus.completed.updatedAt))
+      && !resource.data.orderStatus.cancelled.status;
     }
 
     match /order_items/{orderId} {
