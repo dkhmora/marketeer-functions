@@ -1,38 +1,40 @@
 const { db } = require("../util/admin");
+const axios = require("axios");
 const functions = require("firebase-functions");
 const { SHA1 } = require("crypto-js");
 const { firestore } = require("firebase-admin");
-const {
-  getDragonPaySecretKey,
-  requestPayment,
-  payment_methods,
-} = require("../util/dragonpay");
 const soapRequest = require("easy-soap-request");
 const xml2js = require("xml2js");
 const parser = new xml2js.Parser(/* options */);
+const {
+  requestPaymentTest,
+  getDragonPaySecretKeyTest,
+  payment_methods_test,
+} = require("../util/dragonpay_test");
 
-exports.getAvailablePaymentProcessors = functions
+/* Dragonpay Test API (getAvailablePaymentProcessors)
+exports.getAvailablePaymentProcessorsTest = functions
   .region("asia-northeast1")
   .pubsub.schedule("every 5 minutes")
   .onRun(async (context) => {
     const merchantId = "MARKETEERPH";
-    const password = await getDragonPaySecretKey();
+    const password = await getDragonPaySecretKeyTest();
     const amount = "-1000";
     const url =
-      "https://gw.dragonpay.ph/DragonPayWebService/MerchantService.asmx";
+      "https://test.dragonpay.ph/DragonPayWebService/MerchantService.asmx";
     const requestHeaders = {
       "Content-Type": "text/xml; charset=utf-8",
       SOAPAction: "http://api.dragonpay.ph/GetAvailableProcessors",
     };
     const xml = `<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-                  <soap:Body>
-                    <GetAvailableProcessors xmlns="http://api.dragonpay.ph/">
-                      <merchantId>${merchantId}</merchantId>
-                      <password>${password}</password>
-                      <amount>${amount}</amount>
-                    </GetAvailableProcessors>
-                  </soap:Body>
-                </soap:Envelope>`;
+                    <soap:Body>
+                      <GetAvailableProcessors xmlns="http://api.dragonpay.ph/">
+                        <merchantId>${merchantId}</merchantId>
+                        <password>${password}</password>
+                        <amount>${amount}</amount>
+                      </GetAvailableProcessors>
+                    </soap:Body>
+                  </soap:Envelope>`;
 
     const { response } = await soapRequest({
       url: url,
@@ -75,10 +77,10 @@ exports.getAvailablePaymentProcessors = functions
         endTime,
         hasAltRefNo,
         hasManualEnrollment,
-        hasTxnPwd,
       } = item;
 
-      finalJson[procId[0]] = {
+      finalJson[item.procId] = {
+        procId: procId[0],
         longName: longName[0],
         logo: logo[0],
         minAmount: Number(minAmount[0]),
@@ -100,34 +102,44 @@ exports.getAvailablePaymentProcessors = functions
         endTime: endTime[0],
         hasAltRefNo: hasAltRefNo[0] === "true",
         hasManualEnrollment: hasManualEnrollment[0] === "true",
-        hasTxnPwd: hasTxnPwd[0] === "true",
       };
     });
 
     return await firestore()
       .collection("application")
-      .doc("client_config")
+      .doc("client_config_test")
       .update({
         availablePaymentMethods: finalJson,
       });
   });
+  */
 
-exports.getMerchantPaymentLink = functions
+exports.getMerchantPaymentLinkTest = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
     if (!context.auth.token.merchantIds) {
       return { s: 400, m: "User is not authorized for this action" };
     }
 
-    const { topUpAmount, email, processId } = data;
-    const minAmount = 1000;
+    const { amount, email, processId } = data;
+    const { fixedFee, percentageFee } = payment_methods_test[processId];
 
-    if (topUpAmount < minAmount) {
-      return {
-        s: 400,
-        m: "The minimimum top up amount is 1000. Please try again.",
-      };
-    }
+    const pFee = percentageFee
+      ? percentageFee
+        ? 1 - percentageFee * 0.01
+        : 1
+      : 1;
+    const fFee = fixedFee ? fixedFee : 0;
+
+    const topUpAmount = amount / pFee + fFee;
+    const roundedTopUpAmount =
+      Math.round((topUpAmount + Number.EPSILON) * 100) / 100;
+
+    functions.logger.log(
+      `amount: ${amount}, `,
+      `topUpAmount: ${topUpAmount}, `,
+      `roundedTopUpAmount: ${roundedTopUpAmount}`
+    );
 
     const merchantId = Object.keys(context.auth.token.merchantIds)[0];
     const { storeName } = (
@@ -139,7 +151,7 @@ exports.getMerchantPaymentLink = functions
     const paymentInput = {
       merchantId: "MARKETEERPH",
       transactionId,
-      amount: topUpAmount,
+      amount,
       currency: "PHP",
       description,
       email,
@@ -148,36 +160,27 @@ exports.getMerchantPaymentLink = functions
       param2: merchantId,
     };
 
-    const secretKey = await getDragonPaySecretKey();
+    const secretKey = await getDragonPaySecretKeyTest();
     const timeStamp = firestore.Timestamp.now().toMillis();
 
-    return await db
-      .collection("merchant_payments")
-      .doc(transactionId)
-      .set({
-        transactionId,
-        paymentAmount: topUpAmount,
-        topUpAmount,
-        merchantId,
-        currency: "PHP",
-        description,
-        email,
-        processId,
-        status: "U",
-        createdAt: timeStamp,
-        updatedAt: timeStamp,
-      })
-      .then(() => {
-        return { s: 200, m: requestPayment(secretKey, paymentInput) };
-      })
-      .catch((err) => {
-        functions.logger.error(err);
+    functions.logger.log({
+      transactionId,
+      paymentAmount: amount,
+      topUpAmount: roundedTopUpAmount,
+      merchantId,
+      currency: "PHP",
+      description,
+      email,
+      processId,
+      status: "U",
+      createdAt: timeStamp,
+      updatedAt: timeStamp,
+    });
 
-        return { s: 400, m: err.message };
-      });
+    return { s: 200, m: requestPaymentTest(secretKey, paymentInput) };
   });
 
-exports.checkPayment = async (req, res) => {
+exports.checkPaymentTest = async (req, res) => {
   const { txnid, status, digest, refno, message, param1, param2 } = req.body;
   let transactionDoc = null;
 
@@ -188,7 +191,7 @@ exports.checkPayment = async (req, res) => {
   res.setHeader("content-type", "text/plain");
 
   try {
-    const secretKey = await getDragonPaySecretKey();
+    const secretKey = await getDragonPaySecretKeyTest();
     const confirmMessage = `${txnid}:${refno}:${status}:${message}:${secretKey}`;
     const confirmDigest = SHA1(confirmMessage).toString();
 
@@ -232,9 +235,9 @@ exports.checkPayment = async (req, res) => {
   }
 };
 
-exports.result = async (req, res) => {
+exports.resultTest = async (req, res) => {
   const { txnid, status, digest, refno, message } = req.query;
-  const secretKey = await getDragonPaySecretKey();
+  const secretKey = await getDragonPaySecretKeyTest();
   const confirmMessage = `${txnid}:${refno}:${status}:${message}:${secretKey}`;
   const confirmDigest = SHA1(confirmMessage).toString();
 

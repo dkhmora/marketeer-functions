@@ -15,15 +15,18 @@
     "node": "10"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^4.2.0",
     "@google-cloud/secret-manager": "^3.1.0",
     "axios": "^0.19.2",
     "crypto-js": "^4.0.0",
+    "easy-soap-request": "^3.3.3",
     "express": "^4.17.1",
     "firebase": "^7.15.5",
     "firebase-admin": "^8.12.1",
-    "firebase-functions": "^3.9.1",
+    "firebase-functions": "^3.11.0",
     "node": "^14.4.0",
-    "query-string": "^6.13.1"
+    "query-string": "^6.13.1",
+    "xml2js": "^0.4.23"
   },
   "devDependencies": {
     "eslint": "^5.12.0",

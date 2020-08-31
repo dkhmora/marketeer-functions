@@ -4,6 +4,8 @@ const firebase = require("firebase");
 const { firestore } = require("firebase-admin");
 const { FB_CONFIG, HERE_API_KEY } = require("./util/config");
 const { db, admin } = require("./util/admin");
+const firestoreGCP = require("@google-cloud/firestore");
+const client = new firestoreGCP.v1.FirestoreAdminClient();
 
 firebase.initializeApp({
   ...FB_CONFIG,
@@ -14,14 +16,55 @@ const {
   checkPayment,
   result,
   getMerchantPaymentLink,
+  getAvailablePaymentProcessors,
 } = require("./handlers/payments");
 
 app.post("/payment/checkPayment", checkPayment);
 app.get("/payment/result", result);
 
+// ** Dragonpay Test **
+const {
+  checkPaymentTest,
+  resultTest,
+  getMerchantPaymentLinkTest,
+} = require("./handlers/payments_test");
+
+app.post("/payment/checkPaymentTest", checkPaymentTest);
+app.get("/payment/resultTest", resultTest);
+
+exports.getMerchantPaymentLinkTest = getMerchantPaymentLinkTest;
+// ** Dragonpay Test **
+
+// ** Dragonpay PRODUCTION **
+exports.getMerchantPaymentLink = getMerchantPaymentLink;
+exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
+// ** Dragonpay PRODUCTION **
+
 exports.api = functions.region("asia-northeast1").https.onRequest(app);
 
-exports.getMerchantPaymentLink = getMerchantPaymentLink;
+exports.scheduledFirestoreExport = functions
+  .region("asia-northeast1")
+  .pubsub.schedule("every 24 hours")
+  .onRun((context) => {
+    const bucket = "gs://marketeer-backup-bucket";
+    const projectId = process.env.GCP_PROJECT || process.env.GCLOUD_PROJECT;
+    const databaseName = client.databasePath(projectId, "(default)");
+
+    return client
+      .exportDocuments({
+        name: databaseName,
+        outputUriPrefix: bucket,
+        collectionIds: [],
+      })
+      .then((responses) => {
+        const response = responses[0];
+        return functions.logger.log(`Operation Name: ${response["name"]}`);
+      })
+      .catch((err) => {
+        functions.logger.error(err);
+        throw new Error("Export operation failed");
+      });
+  });
 
 exports.signInWithPhoneAndPassword = functions
   .region("asia-northeast1")
@@ -206,6 +249,9 @@ exports.changeOrderStatus = functions
                       body: `"Please top up before reaching your Markee credit threshold limit of ${creditThreshold} in order to receive more orders.
                 If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
                     },
+                    data: {
+                      type: "markee_credits",
+                    },
                     token,
                   });
                 });
@@ -276,6 +322,10 @@ exports.changeOrderStatus = functions
                   title: notificationTitle,
                   body: notificationBody,
                 },
+                data: {
+                  type: "order_update",
+                  orderId,
+                },
                 token,
               });
             });
@@ -299,7 +349,7 @@ exports.cancelOrder = functions
     const userId = context.auth.uid;
     const merchantId = context.auth.token.merchantId;
 
-    if (!userId || !merchantId) {
+    if (!userId) {
       return { s: 400, m: "Error: User is not authorized" };
     }
 
@@ -311,65 +361,74 @@ exports.cancelOrder = functions
       return await db
         .runTransaction(async (transaction) => {
           const orderRef = firestore().collection("orders").doc(orderId);
-          const merchantRef = firestore()
-            .collection("merchants")
-            .doc(merchantId);
 
-          return await transaction
-            .getAll(orderRef, merchantRef)
-            .then((documents) => {
-              const orderData = documents[0].data();
-              const merchantData = documents[1].data();
+          return await transaction.get(orderRef).then((document) => {
+            const orderData = document.data();
 
-              if (orderData.merchantId !== merchantId) {
-                throw new Error("Order does not correspond with merchant id");
+            if (merchantId && orderData.merchantId !== merchantId) {
+              throw new Error("Order does not correspond with merchant id");
+            }
+
+            if (!merchantId && userId && orderData.userId !== userId) {
+              throw new Error("Order does not correspond with current user");
+            }
+
+            const {
+              orderStatus,
+              paymentMethod,
+              merchantOrderNumber,
+              userOrderNumber,
+            } = orderData;
+
+            let newOrderStatus = {};
+            let currentStatus;
+
+            Object.keys(orderStatus).map((item, index) => {
+              if (orderStatus[`${item}`].status) {
+                currentStatus = item;
               }
-
-              const { orderStatus } = orderData;
-
-              let newOrderStatus = {};
-              let currentStatus;
-
-              Object.keys(orderStatus).map((item, index) => {
-                if (orderStatus[`${item}`].status) {
-                  currentStatus = item;
-                }
-              });
-
-              if (
-                currentStatus === "paid" ||
-                currentStatus === "shipped" ||
-                currentStatus === "completed" ||
-                currentStatus === "cancelled"
-              ) {
-                throw new Error(
-                  "Error: Order is not pending or unpaid, and thus cannot be cancelled"
-                );
-              }
-
-              newOrderStatus = orderStatus;
-
-              newOrderStatus[`${currentStatus}`].status = false;
-
-              const nowTimestamp = firestore.Timestamp.now().toMillis();
-
-              newOrderStatus.cancelled = {
-                status: true,
-                reason: cancelReason,
-                updatedAt: nowTimestamp,
-              };
-
-              transaction.update(orderRef, {
-                orderStatus: newOrderStatus,
-                updatedAt: nowTimestamp,
-              });
-
-              return { orderData, merchantData };
             });
+
+            if (
+              (currentStatus === "paid" && paymentMethod !== "COD") ||
+              currentStatus === "shipped" ||
+              currentStatus === "completed" ||
+              currentStatus === "cancelled"
+            ) {
+              throw new Error(
+                `Sorry, Order #${
+                  // eslint-disable-next-line promise/always-return
+                  merchantId ? merchantOrderNumber : userOrderNumber
+                } cannot be cancelled. Please contact Marketeer Support if you think there may be something wrong. Thank you.`
+              );
+            }
+
+            newOrderStatus = orderStatus;
+
+            newOrderStatus[`${currentStatus}`].status = false;
+
+            const nowTimestamp = firestore.Timestamp.now().toMillis();
+
+            newOrderStatus.cancelled = {
+              status: true,
+              reason: cancelReason,
+              byShopper: merchantId ? false : true,
+              updatedAt: nowTimestamp,
+            };
+
+            transaction.update(orderRef, {
+              orderStatus: newOrderStatus,
+              updatedAt: nowTimestamp,
+            });
+
+            return { orderData };
+          });
         })
-        .then(async ({ orderData, merchantData }) => {
+        .then(async ({ orderData }) => {
           const { userId, userOrderNumber } = orderData;
-          const { storeName } = merchantData;
+          const { storeName } = (
+            await firestore().collection("merchants").doc(merchantId).get()
+          ).data();
 
           const userData = (
             await db.collection("users").doc(userId).get()
@@ -387,6 +446,10 @@ exports.cancelOrder = functions
               notification: {
                 title: notificationTitle,
                 body: notificationBody,
+              },
+              data: {
+                type: "order_update",
+                orderId,
               },
               token,
             });
@@ -440,7 +503,7 @@ exports.getAddressFromCoordinates = functions
             }
           })
           .catch((e) => {
-            console.log("Error in getAddressFromCoordinates", e);
+            functions.logger.log("Error in getAddressFromCoordinates", e);
             resolve();
           });
       });
@@ -558,13 +621,30 @@ exports.placeOrder = functions
                   if (userDoc.exists) {
                     userData = userDoc.data();
                   } else {
-                    console.error("Error: User does not exist!");
+                    functions.logger.error("Error: User does not exist!");
                   }
 
                   if (merchantDoc.exists) {
                     storeDetails = merchantDoc.data();
                   } else {
-                    console.error("Error: User does not exist!");
+                    throw new Error(
+                      `Sorry, a store you ordered from does not exist. Please try again or place another order from another store.`
+                    );
+                  }
+
+                  if (
+                    !storeDetails.visibleToPublic ||
+                    storeDetails.vacationMode
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} is currently on vacation. Please try again later.`
+                    );
+                  }
+
+                  if (storeDetails.creditData.creditThresholdReached) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    );
                   }
 
                   const currentUserOrderNumber = userData.orderNumber
@@ -642,15 +722,15 @@ exports.placeOrder = functions
 
                   const ordersRef = firestore().collection("orders");
                   const orderItemsRef = firestore().collection("order_items");
-                  const id = ordersRef.doc().id;
+                  const orderId = ordersRef.doc().id;
 
                   // Place order
-                  transaction.set(orderItemsRef.doc(id), {
+                  transaction.set(orderItemsRef.doc(orderId), {
                     items: orderItems,
                     merchantId,
                     userId,
                   });
-                  transaction.set(ordersRef.doc(id), {
+                  transaction.set(ordersRef.doc(orderId), {
                     ...orderDetails,
                     messages: [],
                   });
@@ -691,10 +771,10 @@ exports.placeOrder = functions
                     [merchantId]: firestore.FieldValue.delete(),
                   });
 
-                  return { orderDetails, storeDetails };
+                  return { orderDetails, storeDetails, orderId };
                 });
             })
-            .then(async ({ orderDetails, storeDetails }) => {
+            .then(async ({ orderDetails, storeDetails, orderId }) => {
               // Send Order Notification to merchant
               let fcmTokens = [];
 
@@ -709,6 +789,10 @@ exports.placeOrder = functions
                     notification: {
                       title: "You've got a new order!",
                       body: `Order # ${merchantOrderNumber}; Order Total: ${subTotal}`,
+                    },
+                    data: {
+                      type: "new_order",
+                      orderId,
                     },
                     token,
                   });
@@ -999,6 +1083,7 @@ exports.sendMessageNotification = functions
   .region("asia-northeast1")
   .firestore.document("orders/{orderId}")
   .onUpdate(async (change, context) => {
+    const orderId = change.after.id;
     const newValue = change.after.data();
     const previousValue = change.before.data();
     const {
@@ -1010,7 +1095,7 @@ exports.sendMessageNotification = functions
       storeName,
     } = newValue;
 
-    if (newValue.messages !== previousValue.messages) {
+    if (newValue.messages.length !== previousValue.messages.length) {
       const lastMessage = newValue.messages.slice(-1).pop();
       const receivingUserData =
         lastMessage.user._id === merchantId
@@ -1038,6 +1123,10 @@ exports.sendMessageNotification = functions
             notification: {
               title: `New message regarding Order #${orderNumber}`,
               body,
+            },
+            data: {
+              type: "order_message",
+              orderId,
             },
             token,
           });

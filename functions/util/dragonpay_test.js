@@ -3,7 +3,21 @@ const { SHA1 } = require("crypto-js");
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const client = new SecretManagerServiceClient();
 
-const payment_methods = {
+const payment_methods_test = {
+  BOG: {
+    name: "Bogus Bank",
+    description:
+      "Use your Bogus Bank Online Banking account to make a payment (TEST ONLY).",
+    devOnly: true,
+    fixedFee: 10,
+    percentageFee: 2,
+  },
+  BOGX: {
+    name: "Bogus Bank Over-The-Counter",
+    description:
+      "Deposit your payment over-the-counter at any Bogus Bank branch worldwide (TEST ONLY).",
+    devOnly: true,
+  },
   BDO: {
     name: "BDO Internet Banking",
     description:
@@ -340,16 +354,16 @@ const payment_methods = {
   },
 };
 
-const getDragonPaySecretKey = async () => {
+const getDragonPaySecretKeyTest = async () => {
   const [accessResponse] = await client.accessSecretVersion({
-    name: "projects/1549607298/secrets/dragonpay_secret/versions/latest",
+    name: "projects/1549607298/secrets/dragonpay_secret_test/versions/latest",
   });
   const secretKey = accessResponse.payload.data.toString("utf8");
 
   return secretKey;
 };
 
-const requestPayment = (secretkey, payload) => {
+const requestPaymentTest = (secretkey, payload) => {
   const message = `${payload.merchantId}:${
     payload.transactionId
   }:${payload.amount.toFixed(2)}:${payload.currency}:${payload.description}:${
@@ -371,11 +385,11 @@ const requestPayment = (secretkey, payload) => {
     procid: payload.processId,
   };
 
-  const url = `https://gw.dragonpay.ph/Pay.aspx?${queryString.stringify(
+  const url = `https://test.dragonpay.ph/Pay.aspx?${queryString.stringify(
     request
   )}`;
 
   return { url };
 };
 
-module.exports = { requestPayment, getDragonPaySecretKey, payment_methods };
+module.exports = { requestPaymentTest, getDragonPaySecretKeyTest, payment_methods_test };
