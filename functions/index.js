@@ -1001,6 +1001,7 @@ exports.addStoreItem = functions
     }
   });
 
+/*
 exports.setMerchantAdminToken = functions
   .region("asia-northeast1")
   .firestore.document("merchant_admins/{merchantId}")
@@ -1067,6 +1068,238 @@ exports.setMerchantAdminToken = functions
             .then(() => {
               return functions.logger.log(
                 `Removed ${merchantId} token from ${userId}`
+              );
+            })
+            .catch((err) => {
+              return functions.logger.error(err);
+            });
+        }
+      });
+    } else {
+      functions.logger.log("No user IDs");
+    }
+  });
+*/
+
+exports.editUserMerchantRoles = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { roles, userId, merchantId } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!userId || !roles || !merchantId) {
+      return { s: 400, m: "Error: Incomplete data provided" };
+    }
+
+    const previousUserCustomClaims = (await admin.auth().getUser(userId))
+      .customClaims;
+    let newMerchantIds = { [merchantId]: roles };
+
+    if (previousUserCustomClaims.merchantIds) {
+      newMerchantIds = {
+        ...previousUserCustomClaims.merchantIds,
+        [merchantId]: roles,
+      };
+    }
+
+    return await admin
+      .auth()
+      .setCustomUserClaims(userId, {
+        merchantIds: {
+          ...newMerchantIds,
+        },
+      })
+      .then(async () => {
+        await firestore()
+          .collection("merchants")
+          .doc(merchantId)
+          .update({
+            [`users.${userId}`]: roles,
+          });
+
+        return {
+          s: 200,
+          m: `Successfully added roles (${roles.map((role, index) => {
+            return `${role}${roles.length - 1 !== index ? ", " : ""}`;
+          })}) for ${merchantId} to ${userId}!`,
+        };
+      });
+  });
+
+exports.getUserFromUserId = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { userIds } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!userIds) {
+      return { s: 400, m: "Error: Incomplete data provided" };
+    }
+
+    return admin.auth().getUsers(userIds);
+  });
+
+exports.createStoreEmployeeAccount = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { email, password, role, merchantId } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    try {
+      return admin
+        .auth()
+        .getUserByEmail(email)
+        .then(async (user) => {
+          /*
+          const previousUserCustomClaims = (await admin.auth().getUser(userId))
+            .customClaims;
+          let newMerchantIds = { [merchantId]: role };
+
+          if (previousUserCustomClaims.merchantIds) {
+            newMerchantIds = {
+              ...previousUserCustomClaims.merchantIds,
+              [merchantId]: role,
+            };
+          }
+
+          return await admin
+            .auth()
+            .setCustomUserClaims(userId, {
+              merchantIds,
+            })
+            .then(async () => {
+              await firestore()
+                .collection("merchants")
+                .doc(merchantId)
+                .update({
+                  [`users.${role}.${userId}`]: true,
+                });
+
+              return {
+                s: 500,
+                m: `Error: User with email "${email}" already exists.`,
+              };
+            });
+            */
+
+          return {
+            s: 400,
+            m: `Error: User with email "${email}" already exists.`,
+          };
+        })
+        .catch((error) => {
+          if (error.code === "auth/user-not-found") {
+            return admin
+              .auth()
+              .createUser({
+                email,
+                password,
+              })
+              .then(async (user) => {
+                const userId = user.uid;
+                const merchantIds = { [merchantId]: role };
+
+                return await admin
+                  .auth()
+                  .setCustomUserClaims(userId, {
+                    merchantIds,
+                  })
+                  .then(async () => {
+                    await firestore()
+                      .collection("merchants")
+                      .doc(merchantId)
+                      .update({
+                        [`users.${role}.${userId}`]: true,
+                      });
+
+                    return {
+                      s: 200,
+                      m: `Successfully added ${merchantId} token to ${userId}`,
+                    };
+                  });
+              });
+          }
+
+          return { s: 400, m: error };
+        });
+    } catch (error) {
+      return { s: 400, m: error };
+    }
+  });
+
+exports.setMarketeerAdminToken = functions
+  .region("asia-northeast1")
+  .firestore.document("marketeer_admins/userIds")
+  .onWrite(async (change, context) => {
+    const newData = change.after.exists ? change.after.data() : null;
+    const previousData = change.before.exists ? change.before.data() : null;
+    const newDataLength = newData ? Object.keys(newData).length : 0;
+    const previousDataLength = previousData
+      ? Object.keys(previousData).length
+      : 0;
+
+    const role = "marketeer-admin";
+
+    if (newDataLength >= previousDataLength) {
+      Object.entries(newData).map(async ([userId, value]) => {
+        if (value === false) {
+          const previousUserCustomClaims = (await admin.auth().getUser(userId))
+            .customClaims;
+
+          functions.logger.log(
+            `previousUserCustomClaims of ${userId}: ${previousUserCustomClaims}`
+          );
+
+          return await admin
+            .auth()
+            .setCustomUserClaims(userId, { role })
+            .then(async () => {
+              const newUserCustomClaims = (await admin.auth().getUser(userId))
+                .customClaims;
+
+              functions.logger.log(
+                `newUserCustomClaims of ${userId}: ${newUserCustomClaims}`
+              );
+
+              await firestore()
+                .collection("marketeer_admins")
+                .doc("userIds")
+                .update({
+                  [userId]: true,
+                })
+                .catch((err) => {
+                  return functions.logger.error(err);
+                });
+
+              return functions.logger.log(
+                `Added marketeer-admin token to ${userId}`
+              );
+            })
+            .catch((err) => {
+              return functions.logger.error(err);
+            });
+        } else {
+          functions.logger.log(`${userId} already set`);
+        }
+      });
+    } else if (newDataLength < previousDataLength) {
+      Object.entries(previousData).map(async ([userId, value]) => {
+        if (!Object.keys(newData).includes(userId)) {
+          return await admin
+            .auth()
+            .setCustomUserClaims(userId, null)
+            .then(() => {
+              return functions.logger.log(
+                `Removed marketeer-admin token from ${userId}`
               );
             })
             .catch((err) => {

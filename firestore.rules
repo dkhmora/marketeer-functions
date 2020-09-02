@@ -27,6 +27,10 @@ service cloud.firestore {
         || resource.data[field] == request.resource.data[field]
     }
 
+    function userIsMarketeerAdmin() {
+      return request.auth.token.role == 'marketeer-admin';
+    }
+
     function documentIsOlderThan(days, docTime) {
       return request.time.toMillis() > docTime + 86400000 * days
     }
@@ -37,6 +41,7 @@ service cloud.firestore {
       && notUpdating('storeCategory') && notUpdating('storeName')
       && notUpdating('storeLocation');
       allow read: if userIsAuthenticated();
+      allow create: if userIsMarketeerAdmin();
     }
 
     match /merchants/{merchantId}/items/{itemPageIds} {

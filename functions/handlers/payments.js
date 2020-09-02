@@ -13,7 +13,7 @@ const parser = new xml2js.Parser(/* options */);
 
 exports.getAvailablePaymentProcessors = functions
   .region("asia-northeast1")
-  .pubsub.schedule("every 5 minutes")
+  .pubsub.schedule("every 15 minutes")
   .onRun(async (context) => {
     const merchantId = "MARKETEERPH";
     const password = await getDragonPaySecretKey();
@@ -125,7 +125,7 @@ exports.getMerchantPaymentLink = functions
     if (topUpAmount < minAmount) {
       return {
         s: 400,
-        m: "The minimimum top up amount is 1000. Please try again.",
+        m: "The minimimum top up amount is 1000 pesos. Please try again.",
       };
     }
 
