@@ -1129,6 +1129,22 @@ exports.editUserMerchantRoles = functions
       });
   });
 
+exports.getUserFromEmail = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { email } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!email) {
+      return { s: 400, m: "Error: Incomplete data provided" };
+    }
+
+    return admin.auth().getUserByEmail(email);
+  });
+
 exports.getUserFromUserId = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
