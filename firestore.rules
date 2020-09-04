@@ -67,7 +67,9 @@ service cloud.firestore {
       || userIsStoreAdmin(storeId) && notUpdating('creditData')
       && notUpdating('visibleToPublic') && notUpdating('storeCategory')
       && notUpdating('storeName') && notUpdating('storeLocation')
-      && notUpdating('users') && notUpdating('orderNumber');
+      && notUpdating('users') && notUpdating('orderNumber')
+      && notUpdating('devOnly') && notUpdating('reviewNumber')
+      && notUpdating('ratingAverage') && notUpdating('address');
       allow read: if userIsAuthenticated();
       allow create: if userIsMarketeerAdmin();
     }
