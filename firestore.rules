@@ -52,12 +52,6 @@ service cloud.firestore {
       allow create: if userIsMarketeerAdmin();
     }
 
-    match /merchants/{merchantId}/items/{itemPageIds} {
-      allow read, write, delete: if userIsMerchantAdmin(merchantId);
-      allow read: if userIsAuthenticated();
-      allow read: if userIsSignedUp();
-    }
-
     match /merchant_payments/{paymentId} {
       allow read: if userIsMerchantAdmin(resource.data.merchantId) || userIsStoreAdmin(resource.data.storeId);
     }

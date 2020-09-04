@@ -36,6 +36,7 @@ const {
   executePayoutTest,
   getOrderPaymentLinkTest,
 } = require("./handlers/payments_test");
+const { document } = require("firebase-functions/lib/providers/firestore");
 
 const ipAddressTest = async (req, res) => {
   return request.get(
@@ -194,7 +195,7 @@ exports.sendPasswordResetLinkToStoreUser = functions
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { orderId, storeId } = data;
+    const { orderId, storeId, merchantId } = data;
     const userId = context.auth.uid;
     const storeIds = context.auth.token.storeIds;
 
@@ -202,28 +203,52 @@ exports.changeOrderStatus = functions
       return { s: 400, m: "Error: User is not authorized" };
     }
 
-    if (orderId === undefined) {
-      return { s: 400, m: "Bad argument: Order ID not found" };
+    if (!orderId || !storeId || !merchantId) {
+      return { s: 400, m: "Bad argument: Incomplete details" };
     }
 
-    const statusArray = ["pending", "unpaid", "paid", "shipped", "completed"];
-
-    const orderRef = firestore().collection("orders").doc(orderId);
-    const storeRef = firestore().collection("stores").doc(storeId);
-
     try {
-      return db
-        .runTransaction(async (transaction) => {
-          let orderData, storeData;
+      return db.runTransaction(async (transaction) => {
+        const orderRef = db.collection("orders").doc(orderId);
+        const storeRef = db.collection("stores").doc(storeId);
+        const merchantRef = db.collection("merchants").doc(merchantId);
+        const CREDIT_THRESHOLD_MULTIPLIER = 2;
+        const statusArray = [
+          "pending",
+          "unpaid",
+          "paid",
+          "shipped",
+          "completed",
+        ];
 
-          await transaction.getAll(orderRef, storeRef).then((documents) => {
+        let orderData, storeData, merchantData;
+
+        return await transaction
+          .getAll(orderRef, storeRef, merchantRef)
+          .then(async (documents) => {
             const orderDoc = documents[0];
             const storeDoc = documents[1];
+            const merchantDoc = documents[2];
 
             orderData = orderDoc.data();
             storeData = storeDoc.data();
+            merchantData = merchantDoc.data();
 
-            const userStoreRoles = storeIds[orderData.storeId];
+            const { storeId, orderStatus, paymentMethod, subTotal } = orderData;
+            const { stores, creditData } = merchantData;
+            const {
+              credits,
+              creditThreshold,
+              transactionFeePercentage,
+            } = creditData;
+
+            const userStoreRoles = storeIds[storeId];
+
+            if (!(await stores.find((store) => storeId === store))) {
+              throw new Error(
+                "Supplied storeId does not correspond with merchant id"
+              );
+            }
 
             if (!userStoreRoles) {
               throw new Error("Order does not correspond with store id");
@@ -239,180 +264,201 @@ exports.changeOrderStatus = functions
               );
             }
 
-            if (storeData.creditData.creditThresholdReached) {
+            if (credits < creditThreshold) {
               throw new Error(
                 "You have reached the Markee credit threshold! Please load up in order to process more orders. If you have any problems, please contact Marketeer Support at support@marketeer.ph"
               );
             }
 
-            return;
-          });
+            let currentOrderStatus = null;
+            let newOrderStatus = { ...orderStatus };
 
-          const { orderStatus, paymentMethod, subTotal } = orderData;
-
-          let currentOrderStatus = null;
-          let newOrderStatus = {};
-
-          Object.keys(orderStatus).map((item, index) => {
-            if (orderStatus[`${item}`].status) {
-              currentOrderStatus = item;
-            }
-          });
-
-          if (currentOrderStatus) {
-            let nextStatusIndex = statusArray.indexOf(currentOrderStatus) + 1;
-
-            if (paymentMethod === "COD" && currentOrderStatus === "pending") {
-              nextStatusIndex = 2;
-            }
-
-            const nextStatus = statusArray[nextStatusIndex];
-
-            newOrderStatus = orderStatus;
-
-            const nowTimestamp = firestore.Timestamp.now().toMillis();
-
-            newOrderStatus[`${currentOrderStatus}`].status = false;
-
-            newOrderStatus[`${nextStatus}`] = {
-              status: true,
-              updatedAt: nowTimestamp,
-            };
-
-            transaction.update(orderRef, {
-              orderStatus: newOrderStatus,
-              updatedAt: nowTimestamp,
+            await Object.keys(orderStatus).map((item, index) => {
+              if (orderStatus[`${item}`].status) {
+                currentOrderStatus = item;
+              }
             });
 
-            if (nextStatus === "shipped") {
-              const { creditData } = storeData;
-              const {
-                credits,
-                creditThreshold,
-                transactionFeePercentage,
-              } = creditData;
-              const transactionFee =
-                Math.round(subTotal * transactionFeePercentage) / 100;
-              const newCredits = credits - transactionFee;
-              const newCreditThresholdReached =
-                newCredits < creditThreshold ? true : false;
+            if (currentOrderStatus) {
+              const nowTimestamp = firestore.Timestamp.now().toMillis();
+              let nextStatusIndex = statusArray.indexOf(currentOrderStatus) + 1;
 
-              transaction.update(storeRef, {
-                ["creditData.credits"]: newCredits,
-                ["creditData.creditThresholdReached"]: newCreditThresholdReached,
+              if (paymentMethod === "COD" && currentOrderStatus === "pending") {
+                nextStatusIndex = 2;
+              }
+
+              if (
+                paymentMethod === "Online Banking" &&
+                currentOrderStatus === "unpaid"
+              ) {
+                throw new Error(
+                  "Sorry, you cannot manually change an Online Banking Order's status when it is unpaid."
+                );
+              }
+
+              const nextStatus = statusArray[nextStatusIndex];
+              newOrderStatus[`${currentOrderStatus}`].status = false;
+              newOrderStatus[`${nextStatus}`] = {
+                status: true,
+                updatedAt: nowTimestamp,
+              };
+
+              let orderUpdateData = {
+                orderStatus: newOrderStatus,
+                updatedAt: nowTimestamp,
+              };
+
+              if (
+                paymentMethod === "Online Banking" &&
+                currentOrderStatus === "pending"
+              ) {
+                orderUpdateData.paymentLink = await getOrderPaymentLinkTest({
+                  orderData,
+                  orderId,
+                });
+              }
+
+              transaction.update(orderRef, {
+                ...orderUpdateData,
               });
 
-              const fcmTokens = storeData.fcmTokens ? storeData.fcmTokens : [];
+              if (nextStatus === "shipped") {
+                const transactionFee =
+                  Math.round(subTotal * transactionFeePercentage) / 100;
+                const newCredits = credits - transactionFee;
 
-              const orderNotifications = [];
-
-              if (newCreditThresholdReached) {
-                fcmTokens.map((token) => {
-                  orderNotifications.push({
-                    notification: {
-                      title: "WARNING: You've run out of Markee credits!",
-                      body: `"Please top up in order to receive more orders.
-                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
-                    },
-                    token,
-                  });
+                transaction.update(merchantRef, {
+                  ["creditData.credits"]: newCredits,
                 });
+
+                const fcmTokens = storeData.fcmTokens
+                  ? storeData.fcmTokens
+                  : [];
+                const orderNotifications = [];
+
+                if (newCredits < creditThreshold) {
+                  fcmTokens.map((token) => {
+                    orderNotifications.push({
+                      notification: {
+                        title: "WARNING: You've run out of Markee credits!",
+                        body: `"Please top up your Markee Credits in order to receive more orders.
+                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
+                      },
+                      token,
+                    });
+                  });
+                }
+
+                if (
+                  newCredits <=
+                  creditThreshold * CREDIT_THRESHOLD_MULTIPLIER
+                ) {
+                  fcmTokens.map((token) => {
+                    orderNotifications.push({
+                      notification: {
+                        title: `WARNING: You only have ${newCredits} Markee credits left!`,
+                        body: `"Please top up before reaching your Markee credit threshold limit of ${creditThreshold} in order to receive more orders.
+                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
+                      },
+                      data: {
+                        type: "markee_credits",
+                      },
+                      token,
+                    });
+                  });
+                }
+
+                orderNotifications.length > 0 && fcmTokens.length > 0
+                  ? await admin.messaging().sendAll(orderNotifications)
+                  : null;
               }
 
-              if (newCredits <= creditThreshold * 2) {
-                fcmTokens.map((token) => {
-                  orderNotifications.push({
-                    notification: {
-                      title: `WARNING: You only have ${newCredits} Markee credits left!`,
-                      body: `"Please top up before reaching your Markee credit threshold limit of ${creditThreshold} in order to receive more orders.
-                If you need assistance, please email us at support@marketeer.ph and we will help you load up."`,
-                    },
-                    data: {
-                      type: "markee_credits",
-                    },
-                    token,
-                  });
-                });
+              return { orderData, storeData, nextStatus, paymentMethod };
+            } else {
+              throw new Error("No order status");
+            }
+          })
+          .then(async ({ orderData, storeData, nextStatus, paymentMethod }) => {
+            const { userId, userOrderNumber } = orderData;
+            const { storeName } = storeData;
+
+            const userData = (
+              await db.collection("users").doc(userId).get()
+            ).data();
+
+            const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
+
+            const orderNotifications = [];
+
+            let notificationTitle = "";
+            let notificationBody = "";
+            let type = "";
+
+            if (nextStatus === "unpaid") {
+              if (paymentMethod === "Online Payment") {
+                notificationTitle = "Your order has been confirmed!";
+                notificationBody = `Order #${userOrderNumber} is now waiting for your payment. Pay for your order now by contacting ${storeName} through the Marketeer chat screen.`;
+                type = "order_cart";
               }
 
-              orderNotifications.length > 0 && fcmTokens.length > 0
-                ? await admin.messaging().sendAll(orderNotifications)
-                : null;
+              if (paymentMethod === "Online Banking") {
+                notificationTitle = "Your order has been confirmed!";
+                notificationBody = `Order #${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
+                type = "order_payment";
+              }
             }
 
-            return { orderData, storeData, nextStatus, paymentMethod };
-          } else {
-            throw new Error("No order status");
-          }
-        })
-        .then(async ({ orderData, storeData, nextStatus, paymentMethod }) => {
-          const { userId, userOrderNumber } = orderData;
-          const { storeName } = storeData;
+            if (nextStatus === "paid") {
+              if (paymentMethod === "COD") {
+                notificationTitle = "Your order has been confirmed!";
+              }
 
-          const userData = (
-            await db.collection("users").doc(userId).get()
-          ).data();
+              if (paymentMethod === "Online Payment") {
+                notificationTitle = "Your order has been marked as paid!";
+              }
 
-          const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
+              if (paymentMethod === "Online Banking") {
+                notificationTitle =
+                  "You've successfully paid for your order online!";
+              }
 
-          const orderNotifications = [];
+              notificationBody = `Order #${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
+              type = "order_details";
+            }
 
-          let notificationTitle = "";
-          let notificationBody = "";
+            if (nextStatus === "shipped") {
+              notificationTitle = "Your order has been shipped!";
+              notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
+              type = "order_details";
+            }
 
-          if (nextStatus === "unpaid" && paymentMethod === "Online Payment") {
-            notificationTitle = "Your order has been confirmed!";
-            notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by contacting ${storeName} through our chat in the Orders Screen.`;
-          } else if (
-            nextStatus === "unpaid" &&
-            paymentMethod === "Online Payment"
-          ) {
-            notificationTitle = "Your order has been confirmed!";
-            notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
-          } else if (
-            nextStatus === "paid" &&
-            paymentMethod === "Online Payment"
-          ) {
-            notificationTitle = "Your order has been marked as paid!";
-            notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
-          } else if (nextStatus === "paid" && paymentMethod === "COD") {
-            notificationTitle = "Your order has been confirmed!";
-            notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
-          } else if (
-            nextStatus === "paid" &&
-            paymentMethod === "Online Banking"
-          ) {
-            notificationTitle =
-              "You've successfully paid for your order online!";
-            notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
-          } else if (nextStatus === "shipped") {
-            notificationTitle = "Your order has been shipped!";
-            notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
-          } else if (nextStatus === "completed") {
-            notificationTitle = "Your order is now marked as complete!";
-            notificationBody = `Enjoy the goodies from ${storeName}! If you liked the service, please share your experience with others by placing a review. We hope to serve you again soon!`;
-          }
+            if (nextStatus === "completed") {
+              notificationTitle = "Your order is now marked as complete!";
+              notificationBody = `Enjoy the goodies from ${storeName}! If you liked the service, please share your experience with others by placing a review. We hope to serve you again soon!`;
+              type = "order_review";
+            }
 
-          fcmTokens.map((token) => {
-            orderNotifications.push({
-              notification: {
-                title: notificationTitle,
-                body: notificationBody,
-              },
-              data: {
-                type: "order_update",
-                orderId,
-              },
-              token,
+            fcmTokens.map((token) => {
+              orderNotifications.push({
+                notification: {
+                  title: notificationTitle,
+                  body: notificationBody,
+                },
+                data: {
+                  type,
+                  orderId,
+                },
+                token,
+              });
             });
+
+            orderNotifications.length > 0 && fcmTokens.length > 0
+              ? await admin.messaging().sendAll(orderNotifications)
+              : null;
+
+            return { s: 200, m: "Order status successfully updated!" };
           });
-
-          orderNotifications.length > 0 && fcmTokens.length > 0
-            ? await admin.messaging().sendAll(orderNotifications)
-            : null;
-
-          return { s: 200, m: "Order status successfully updated!" };
-        });
+      });
     } catch (e) {
       return { s: 400, m: `Error, something went wrong: ${e}` };
     }
@@ -614,6 +660,8 @@ exports.placeOrder = functions
       deliveryAddress,
       userCoordinates,
       userName,
+      userEmail,
+      processId,
       storeSelectedDeliveryMethod,
       storeSelectedPaymentMethod,
     } = JSON.parse(orderInfo);
@@ -635,13 +683,13 @@ exports.placeOrder = functions
         : null;
 
       if (
-        deliveryCoordinates === undefined ||
-        deliveryAddress === undefined ||
-        userCoordinates === undefined ||
-        userName === undefined ||
-        storeCartItems === undefined ||
-        storeSelectedDeliveryMethod === undefined ||
-        storeSelectedPaymentMethod === undefined
+        !deliveryCoordinates ||
+        !deliveryAddress ||
+        !userCoordinates ||
+        !userName ||
+        !storeCartItems ||
+        !storeSelectedDeliveryMethod ||
+        !storeSelectedPaymentMethod
       ) {
         return { s: 400, m: "Bad argument: Incomplete request" };
       }
@@ -719,8 +767,8 @@ exports.placeOrder = functions
                   }
 
                   if (
-                    !storeDetails.visibleToPublic ||
-                    storeDetails.vacationMode
+                    !storeDetails.devOnly &&
+                    (!storeDetails.visibleToPublic || storeDetails.vacationMode)
                   ) {
                     throw new Error(
                       `Sorry, ${storeDetails.storeName} is currently on vacation. Please try again later.`
@@ -747,6 +795,13 @@ exports.placeOrder = functions
                   const orderItems = storeCartItems[storeId];
                   const deliveryMethod = storeSelectedDeliveryMethod[storeId];
                   const paymentMethod = storeSelectedPaymentMethod[storeId];
+
+                  if (
+                    paymentMethod === "Online Banking" &&
+                    !(userEmail && processId)
+                  ) {
+                    return { s: 400, m: "Bad argument: Incomplete request" };
+                  }
 
                   await orderItems.map((orderItem) => {
                     quantity = orderItem.quantity + quantity;
@@ -781,8 +836,9 @@ exports.placeOrder = functions
                     : deliveryMethod !== "Own Delivery"
                     ? null
                     : storeDetails.ownDeliveryServiceFee;
+                  const email = userEmail;
 
-                  const orderDetails = {
+                  let orderDetails = {
                     reviewed: false,
                     userCoordinates,
                     deliveryCoordinates,
@@ -805,6 +861,11 @@ exports.placeOrder = functions
                     merchantOrderNumber: newStoreOrderNumber,
                     userOrderNumber: newUserOrderNumber,
                   };
+
+                  if (paymentMethod === "Online Banking") {
+                    orderDetails.email = email;
+                    orderDetails.processId = processId;
+                  }
 
                   const ordersRef = firestore().collection("orders");
                   const orderItemsRef = firestore().collection("order_items");
@@ -1013,10 +1074,10 @@ exports.addReview = functions
 exports.addStoreItem = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { item, storeId } = data;
+    const { item, storeId, timeStamp } = data;
     const storeIds = context.auth.token.storeIds;
 
-    if (!item || !storeId) {
+    if (!item || !storeId || !timeStamp) {
       return { s: 400, m: "Bad argument: Incomplete data" };
     }
 
@@ -1152,6 +1213,85 @@ exports.editUserStoreRoles = functions
           m: `Successfully added roles (${roles.map((role, index) => {
             return `${role}${roles.length - 1 !== index ? ", " : ""}`;
           })}) for ${storeId} to ${userId}!`,
+        };
+      });
+  });
+
+exports.setUserAsMerchant = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { userId } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!userId) {
+      return { s: 400, m: "Error: Incomplete data provided" };
+    }
+
+    const previousUserCustomClaims = (await admin.auth().getUser(userId))
+      .customClaims;
+
+    return await admin
+      .auth()
+      .setCustomUserClaims(userId, {
+        ...previousUserCustomClaims,
+        role: "merchant",
+      })
+      .then(async () => {
+        await firestore()
+          .collection("merchants")
+          .doc(userId)
+          .get()
+          .then((document) => {
+            if (!document.exists) {
+              return document.ref.set({});
+            }
+
+            return null;
+          });
+
+        return {
+          s: 200,
+          m: `Successfully added "merchant" role to ${userId}!`,
+        };
+      });
+  });
+
+exports.assignStoreToMerchant = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { userId, storeId } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!userId || !storeId) {
+      return { s: 400, m: "Error: Incomplete data provided" };
+    }
+
+    const userCustomClaims = (await admin.auth().getUser(userId)).customClaims;
+
+    if (userCustomClaims.role !== "merchant") {
+      return {
+        s: 400,
+        m:
+          "Error: User is not set as a merchant. Please assign the user a merchant role first in order to assign a store to the user.",
+      };
+    }
+
+    return await firestore()
+      .collection("merchants")
+      .doc(userId)
+      .update({
+        stores: firestore.FieldValue.arrayUnion(storeId),
+      })
+      .then(() => {
+        return {
+          s: 200,
+          m: `Successfully assigned store ID "${storeId}" to ${userId}!`,
         };
       });
   });

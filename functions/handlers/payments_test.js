@@ -234,61 +234,44 @@ exports.getMerchantPaymentLinkTest = functions
       });
   });
 
-exports.getOrderPaymentLinkTest = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
-    if (!context.auth.uid || !context.auth.token.phone_number) {
-      return { s: 400, m: "Error: User is not authorized for this action" };
-    }
+exports.getOrderPaymentLinkTest = async ({ orderData, orderId }) => {
+  const { userId, email, processId, subTotal, storeName, storeId } = orderData;
+  const transactionDoc = db.collection("order_payments").doc(orderId);
 
-    const { email } = context.auth.token;
-    const { orderId } = data;
-    const orderDoc = db.collection("orders").doc(orderId);
-    const orderData = (await orderDoc.get()).data();
-    const {
-      userId,
-      processId,
-      subTotal,
-      storeName,
-      merchantId,
-      orderStatus,
-      paymentLink,
-    } = orderData;
+  const description = `Payment to ${storeName} for Order ${orderId} (Not inclusive of delivery fee)`;
 
-    if (context.auth.uid !== userId) {
-      return { s: 400, m: "Error: User is not authorized for this action" };
-    }
+  const paymentInput = {
+    merchantId: "MARKETEERPH",
+    transactionId: orderId,
+    amount: subTotal,
+    currency: "PHP",
+    description,
+    email,
+    processId,
+    param1: "order_payment",
+    param2: userId,
+  };
 
-    if (!orderStatus.unpaid.status) {
-      return { s: 400, m: "Error: Order status is not valid for payment!" };
-    }
+  const secretKey = await getDragonPaySecretKeyTest();
+  const timeStamp = firestore.Timestamp.now().toMillis();
 
-    if (paymentLink) {
-      return { s: 200, m: paymentLink };
-    }
+  functions.logger.log({
+    orderId,
+    paymentAmount: subTotal,
+    storeId,
+    currency: "PHP",
+    description,
+    email,
+    processId,
+    status: "U",
+    createdAt: timeStamp,
+    updatedAt: timeStamp,
+  });
 
-    const description = `Payment to ${storeName} for Order ${orderId} (Not inclusive of delivery fee)`;
-
-    const paymentInput = {
-      merchantId: "MARKETEERPH",
-      transactionId: orderId,
-      amount: subTotal,
-      currency: "PHP",
-      description,
-      email,
-      processId,
-      param1: "order_payment",
-      param2: userId,
-    };
-
-    const secretKey = await getDragonPaySecretKeyTest();
-    const timeStamp = firestore.Timestamp.now().toMillis();
-
-    functions.logger.log({
-      orderId,
-      paymentAmount: amount,
-      topUpAmount: roundedTopUpAmount,
-      merchantId,
+  return await transactionDoc
+    .set({
+      paymentAmount: subTotal,
+      storeId,
       currency: "PHP",
       description,
       email,
@@ -296,34 +279,11 @@ exports.getOrderPaymentLinkTest = functions
       status: "U",
       createdAt: timeStamp,
       updatedAt: timeStamp,
+    })
+    .then(() => {
+      return requestPaymentTest(secretKey, paymentInput).url;
     });
-
-    return await db
-      .collection("merchant_payments")
-      .doc(transactionId)
-      .set({
-        paymentAmount: subTotal,
-        merchantId,
-        currency: "PHP",
-        description,
-        email,
-        processId,
-        status: "U",
-        createdAt: timeStamp,
-        updatedAt: timeStamp,
-      })
-      .then(() => {
-        return orderDoc.update({ paymentLink, updatedAt: timeStamp });
-      })
-      .then(() => {
-        return { s: 200, m: requestPaymentTest(secretKey, paymentInput) };
-      })
-      .catch((err) => {
-        functions.logger.error(err);
-
-        return { s: 400, m: err.message };
-      });
-  });
+};
 
 exports.checkPaymentTest = async (req, res) => {
   const { txnid, status, digest, refno, message, param1, param2 } = req.body;
