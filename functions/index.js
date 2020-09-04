@@ -6,6 +6,12 @@ const { FB_CONFIG, HERE_API_KEY } = require("./util/config");
 const { db, admin } = require("./util/admin");
 const firestoreGCP = require("@google-cloud/firestore");
 const client = new firestoreGCP.v1.FirestoreAdminClient();
+const mkdirp = require("mkdirp");
+const spawn = require("child-process-promise").spawn;
+const path = require("path");
+const os = require("os");
+const fs = require("fs");
+const request = require("request");
 
 firebase.initializeApp({
   ...FB_CONFIG,
@@ -27,12 +33,74 @@ const {
   checkPaymentTest,
   resultTest,
   getMerchantPaymentLinkTest,
+  executePayoutTest,
+  getOrderPaymentLinkTest,
 } = require("./handlers/payments_test");
+
+const ipAddressTest = async (req, res) => {
+  return request.get(
+    "https://api.ipify.org?format=json",
+    (error, response, body) => {
+      functions.logger.log("error:", error); // Print the error if one occurred
+      functions.logger.log("statusCode:", response && response.statusCode); // Print the response status code if a response was received
+      functions.logger.log("body:", body); //Prints the response of the request.
+
+      res.status(200).send(response);
+    }
+  );
+};
+
+const copyCollection = async (req, res) => {
+  const {
+    srcDocumentName,
+    firstSrcCollectionName,
+    secondSrcCollectionName,
+    destDocumentName,
+    firstDestCollectionName,
+    secondDestCollectionName,
+  } = req.body;
+
+  const documents = await db
+    .collection(firstSrcCollectionName)
+    .doc(srcDocumentName)
+    .collection(secondSrcCollectionName)
+    .get();
+  let writeBatch = admin.firestore().batch();
+  const destCollection = db
+    .collection(firstDestCollectionName)
+    .doc(destDocumentName)
+    .collection(secondDestCollectionName);
+  let i = 0;
+  for (const doc of documents.docs) {
+    writeBatch.set(destCollection.doc(doc.id), doc.data());
+    i++;
+    if (i > 400) {
+      // write batch only allows maximum 500 writes per batch
+      i = 0;
+      writeBatch = admin.firestore().batch();
+      writeBatch.commit();
+
+      functions.logger.log("Intermediate committing of batch operation");
+    }
+  }
+  if (i > 0) {
+    functions.logger.log(
+      "Firebase batch operation completed. Doing final committing of batch operation."
+    );
+    await writeBatch.commit();
+  } else {
+    functions.logger.log("Firebase batch operation completed.");
+  }
+};
 
 app.post("/payment/checkPaymentTest", checkPaymentTest);
 app.get("/payment/resultTest", resultTest);
+// app.get("/ipAddressTest", ipAddressTest);
+// app.post("/copyCollection", copyCollection);
 
 exports.getMerchantPaymentLinkTest = getMerchantPaymentLinkTest;
+exports.getOrderPaymentLinkTest = getOrderPaymentLinkTest;
+exports.executePayoutTest = executePayoutTest;
 // ** Dragonpay Test **
 
 // ** Dragonpay PRODUCTION **
@@ -92,10 +160,10 @@ exports.signInWithPhoneAndPassword = functions
     }
   });
 
-exports.sendPasswordResetLinkToMerchant = functions
+exports.sendPasswordResetLinkToStoreUser = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const email = data.email;
+    const { email, storeId } = data;
 
     try {
       if (email === undefined) {
@@ -108,10 +176,10 @@ exports.sendPasswordResetLinkToMerchant = functions
         return { s: 400, m: "Bad argument: Email could not be found" };
       }
 
-      if (!user.customClaims.merchantIds) {
+      if (!user.customClaims.storeIds) {
         return {
           s: 400,
-          m: "Bad argument: Email is not assigned to any merchant",
+          m: "Bad argument: Email is not assigned to any store",
         };
       }
 
@@ -126,11 +194,11 @@ exports.sendPasswordResetLinkToMerchant = functions
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { orderId } = data;
+    const { orderId, storeId } = data;
     const userId = context.auth.uid;
-    const merchantId = context.auth.token.merchantId;
+    const storeIds = context.auth.token.storeIds;
 
-    if (!userId || !merchantId) {
+    if (!userId || !storeIds) {
       return { s: 400, m: "Error: User is not authorized" };
     }
 
@@ -141,25 +209,37 @@ exports.changeOrderStatus = functions
     const statusArray = ["pending", "unpaid", "paid", "shipped", "completed"];
 
     const orderRef = firestore().collection("orders").doc(orderId);
-    const merchantRef = firestore().collection("merchants").doc(merchantId);
+    const storeRef = firestore().collection("stores").doc(storeId);
 
     try {
       return db
         .runTransaction(async (transaction) => {
-          let orderData, merchantData;
+          let orderData, storeData;
 
-          await transaction.getAll(orderRef, merchantRef).then((documents) => {
+          await transaction.getAll(orderRef, storeRef).then((documents) => {
             const orderDoc = documents[0];
-            const merchantDoc = documents[1];
+            const storeDoc = documents[1];
 
             orderData = orderDoc.data();
-            merchantData = merchantDoc.data();
+            storeData = storeDoc.data();
 
-            if (merchantId !== orderData.merchantId) {
-              throw new Error("Order does not correspond with merchant id");
+            const userStoreRoles = storeIds[orderData.storeId];
+
+            if (!userStoreRoles) {
+              throw new Error("Order does not correspond with store id");
             }
 
-            if (merchantData.creditData.creditThresholdReached) {
+            if (
+              !userStoreRoles.includes("admin") &&
+              !userStoreRoles.includes("manager") &&
+              !userStoreRoles.includes("cashier")
+            ) {
+              throw new Error(
+                "User does not have required permissions. Please contact Marketeer support to set a role for your account if required."
+              );
+            }
+
+            if (storeData.creditData.creditThresholdReached) {
               throw new Error(
                 "You have reached the Markee credit threshold! Please load up in order to process more orders. If you have any problems, please contact Marketeer Support at support@marketeer.ph"
               );
@@ -205,7 +285,7 @@ exports.changeOrderStatus = functions
             });
 
             if (nextStatus === "shipped") {
-              const { creditData } = merchantData;
+              const { creditData } = storeData;
               const {
                 credits,
                 creditThreshold,
@@ -217,14 +297,12 @@ exports.changeOrderStatus = functions
               const newCreditThresholdReached =
                 newCredits < creditThreshold ? true : false;
 
-              transaction.update(merchantRef, {
+              transaction.update(storeRef, {
                 ["creditData.credits"]: newCredits,
                 ["creditData.creditThresholdReached"]: newCreditThresholdReached,
               });
 
-              const fcmTokens = merchantData.fcmTokens
-                ? merchantData.fcmTokens
-                : [];
+              const fcmTokens = storeData.fcmTokens ? storeData.fcmTokens : [];
 
               const orderNotifications = [];
 
@@ -262,81 +340,79 @@ exports.changeOrderStatus = functions
                 : null;
             }
 
-            return { orderData, merchantData, nextStatus, paymentMethod };
+            return { orderData, storeData, nextStatus, paymentMethod };
           } else {
             throw new Error("No order status");
           }
         })
-        .then(
-          async ({ orderData, merchantData, nextStatus, paymentMethod }) => {
-            const { userId, userOrderNumber } = orderData;
-            const { storeName } = merchantData;
+        .then(async ({ orderData, storeData, nextStatus, paymentMethod }) => {
+          const { userId, userOrderNumber } = orderData;
+          const { storeName } = storeData;
 
-            const userData = (
-              await db.collection("users").doc(userId).get()
-            ).data();
+          const userData = (
+            await db.collection("users").doc(userId).get()
+          ).data();
 
-            const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
+          const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
 
-            const orderNotifications = [];
+          const orderNotifications = [];
 
-            let notificationTitle = "";
-            let notificationBody = "";
+          let notificationTitle = "";
+          let notificationBody = "";
 
-            if (nextStatus === "unpaid" && paymentMethod === "Online Payment") {
-              notificationTitle = "Your order has been confirmed!";
-              notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by contacting ${storeName} through our chat in the Orders Screen.`;
-            } else if (
-              nextStatus === "unpaid" &&
-              paymentMethod === "Online Payment"
-            ) {
-              notificationTitle = "Your order has been confirmed!";
-              notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
-            } else if (
-              nextStatus === "paid" &&
-              paymentMethod === "Online Payment"
-            ) {
-              notificationTitle = "Your order has been marked as paid!";
-              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
-            } else if (nextStatus === "paid" && paymentMethod === "COD") {
-              notificationTitle = "Your order has been confirmed!";
-              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
-            } else if (
-              nextStatus === "paid" &&
-              paymentMethod === "Online Banking"
-            ) {
-              notificationTitle =
-                "You've successfully paid for your order online!";
-              notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
-            } else if (nextStatus === "shipped") {
-              notificationTitle = "Your order has been shipped!";
-              notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
-            } else if (nextStatus === "completed") {
-              notificationTitle = "Your order is now marked as complete!";
-              notificationBody = `Enjoy the goodies from ${storeName}! If you liked the service, please share your experience with others by placing a review. We hope to serve you again soon!`;
-            }
-
-            fcmTokens.map((token) => {
-              orderNotifications.push({
-                notification: {
-                  title: notificationTitle,
-                  body: notificationBody,
-                },
-                data: {
-                  type: "order_update",
-                  orderId,
-                },
-                token,
-              });
-            });
-
-            orderNotifications.length > 0 && fcmTokens.length > 0
-              ? await admin.messaging().sendAll(orderNotifications)
-              : null;
-
-            return { s: 200, m: "Order status successfully updated!" };
+          if (nextStatus === "unpaid" && paymentMethod === "Online Payment") {
+            notificationTitle = "Your order has been confirmed!";
+            notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by contacting ${storeName} through our chat in the Orders Screen.`;
+          } else if (
+            nextStatus === "unpaid" &&
+            paymentMethod === "Online Payment"
+          ) {
+            notificationTitle = "Your order has been confirmed!";
+            notificationBody = `Order # ${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
+          } else if (
+            nextStatus === "paid" &&
+            paymentMethod === "Online Payment"
+          ) {
+            notificationTitle = "Your order has been marked as paid!";
+            notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
+          } else if (nextStatus === "paid" && paymentMethod === "COD") {
+            notificationTitle = "Your order has been confirmed!";
+            notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
+          } else if (
+            nextStatus === "paid" &&
+            paymentMethod === "Online Banking"
+          ) {
+            notificationTitle =
+              "You've successfully paid for your order online!";
+            notificationBody = `Order # ${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
+          } else if (nextStatus === "shipped") {
+            notificationTitle = "Your order has been shipped!";
+            notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
+          } else if (nextStatus === "completed") {
+            notificationTitle = "Your order is now marked as complete!";
+            notificationBody = `Enjoy the goodies from ${storeName}! If you liked the service, please share your experience with others by placing a review. We hope to serve you again soon!`;
           }
-        );
+
+          fcmTokens.map((token) => {
+            orderNotifications.push({
+              notification: {
+                title: notificationTitle,
+                body: notificationBody,
+              },
+              data: {
+                type: "order_update",
+                orderId,
+              },
+              token,
+            });
+          });
+
+          orderNotifications.length > 0 && fcmTokens.length > 0
+            ? await admin.messaging().sendAll(orderNotifications)
+            : null;
+
+          return { s: 200, m: "Order status successfully updated!" };
+        });
     } catch (e) {
       return { s: 400, m: `Error, something went wrong: ${e}` };
     }
@@ -347,9 +423,9 @@ exports.cancelOrder = functions
   .https.onCall(async (data, context) => {
     const { orderId, cancelReason } = data;
     const userId = context.auth.uid;
-    const merchantId = context.auth.token.merchantId;
+    const storeIds = context.auth.token.storeIds;
 
-    if (!userId) {
+    if (!userId || !storeIds) {
       return { s: 400, m: "Error: User is not authorized" };
     }
 
@@ -364,12 +440,24 @@ exports.cancelOrder = functions
 
           return await transaction.get(orderRef).then((document) => {
             const orderData = document.data();
+            const { storeId } = orderData;
+            const userStoreRoles = storeIds[storeId];
 
-            if (merchantId && orderData.merchantId !== merchantId) {
-              throw new Error("Order does not correspond with merchant id");
+            if (storeIds && !userStoreRoles) {
+              throw new Error("Order does not correspond with store id");
             }
 
-            if (!merchantId && userId && orderData.userId !== userId) {
+            if (
+              !userStoreRoles.includes("admin") &&
+              !userStoreRoles.includes("cashier") &&
+              !userStoreRoles.includes("manager")
+            ) {
+              throw new Error(
+                "User does not have required permissions. Please contact Marketeer support to set a role for your account if required."
+              );
+            }
+
+            if (!storeIds && userId && orderData.userId !== userId) {
               throw new Error("Order does not correspond with current user");
             }
 
@@ -377,6 +465,7 @@ exports.cancelOrder = functions
               orderStatus,
               paymentMethod,
               merchantOrderNumber,
+              storeOrderNumber,
               userOrderNumber,
             } = orderData;
 
@@ -398,7 +487,7 @@ exports.cancelOrder = functions
               throw new Error(
                 `Sorry, Order #${
                   // eslint-disable-next-line promise/always-return
-                  merchantId ? merchantOrderNumber : userOrderNumber
+                  storeIds ? storeOrderNumber : userOrderNumber
                 } cannot be cancelled. Please contact Marketeer Support if you think there may be something wrong. Thank you.`
               );
             }
@@ -412,7 +501,7 @@ exports.cancelOrder = functions
             newOrderStatus.cancelled = {
               status: true,
               reason: cancelReason,
-              byShopper: merchantId ? false : true,
+              byShopper: storeIds ? false : true,
               updatedAt: nowTimestamp,
             };
 
@@ -425,9 +514,9 @@ exports.cancelOrder = functions
           });
         })
         .then(async ({ orderData }) => {
-          const { userId, userOrderNumber } = orderData;
+          const { userId, userOrderNumber, storeId } = orderData;
           const { storeName } = (
-            await firestore().collection("merchants").doc(merchantId).get()
+            await firestore().collection("stores").doc(storeId).get()
           ).data();
 
           const userData = (
@@ -462,7 +551,7 @@ exports.cancelOrder = functions
           return { s: 200, m: "Order successfully cancelled!" };
         });
     } catch (e) {
-      return { s: 400, m: e };
+      return { s: 400, m: e.message };
     }
   });
 
@@ -580,23 +669,23 @@ exports.placeOrder = functions
       };
 
       return await Promise.all(
-        cartStores.map(async (merchantId) => {
+        cartStores.map(async (storeId) => {
           return await db
             .runTransaction(async (transaction) => {
-              const merchantRef = db.collection("merchants").doc(merchantId);
-              const merchantItemDocs = [];
-              const merchantItemRefs = [];
+              const storeRef = db.collection("stores").doc(storeId);
+              const storeItemDocs = [];
+              const storeItemRefs = [];
 
-              await storeCartItems[merchantId].map((item) => {
-                if (!merchantItemDocs.includes(item.doc)) {
+              await storeCartItems[storeId].map((item) => {
+                if (!storeItemDocs.includes(item.doc)) {
                   const itemRef = db
-                    .collection("merchants")
-                    .doc(merchantId)
+                    .collection("stores")
+                    .doc(storeId)
                     .collection("items")
                     .doc(item.doc);
 
-                  merchantItemRefs.push(itemRef);
-                  merchantItemDocs.push(item.doc);
+                  storeItemRefs.push(itemRef);
+                  storeItemDocs.push(item.doc);
                 }
               });
 
@@ -605,17 +694,14 @@ exports.placeOrder = functions
               let storeDetails = {};
 
               return await transaction
-                .getAll(userRef, merchantRef, ...merchantItemRefs)
+                .getAll(userRef, storeRef, ...storeItemRefs)
                 .then(async (documents) => {
                   const userDoc = documents[0];
-                  const merchantDoc = documents[1];
-                  const merchantItemsDocs = documents.slice(
-                    2,
-                    documents.length
-                  );
+                  const storeDoc = documents[1];
+                  const storeItemsDocs = documents.slice(2, documents.length);
 
-                  await merchantItemsDocs.map((merchantItemDoc) => {
-                    currentStoreItems.push(...merchantItemDoc.data().items);
+                  await storeItemsDocs.map((storeItemDoc) => {
+                    currentStoreItems.push(...storeItemDoc.data().items);
                   });
 
                   if (userDoc.exists) {
@@ -624,8 +710,8 @@ exports.placeOrder = functions
                     functions.logger.error("Error: User does not exist!");
                   }
 
-                  if (merchantDoc.exists) {
-                    storeDetails = merchantDoc.data();
+                  if (storeDoc.exists) {
+                    storeDetails = storeDoc.data();
                   } else {
                     throw new Error(
                       `Sorry, a store you ordered from does not exist. Please try again or place another order from another store.`
@@ -651,17 +737,16 @@ exports.placeOrder = functions
                     ? userData.orderNumber
                     : 0;
 
-                  const currentMerchantOrderNumber = storeDetails.orderNumber
+                  const currentStoreOrderNumber = storeDetails.orderNumber
                     ? storeDetails.orderNumber
                     : 0;
 
                   let quantity = 0;
                   let subTotal = 0;
 
-                  const orderItems = storeCartItems[merchantId];
-                  const deliveryMethod =
-                    storeSelectedDeliveryMethod[merchantId];
-                  const paymentMethod = storeSelectedPaymentMethod[merchantId];
+                  const orderItems = storeCartItems[storeId];
+                  const deliveryMethod = storeSelectedDeliveryMethod[storeId];
+                  const paymentMethod = storeSelectedPaymentMethod[storeId];
 
                   await orderItems.map((orderItem) => {
                     quantity = orderItem.quantity + quantity;
@@ -685,7 +770,7 @@ exports.placeOrder = functions
                   });
 
                   const timeStamp = firestore.Timestamp.now().toMillis();
-                  const newMerchantOrderNumber = currentMerchantOrderNumber + 1;
+                  const newStoreOrderNumber = currentStoreOrderNumber + 1;
                   const newUserOrderNumber = currentUserOrderNumber + 1;
                   const freeDelivery =
                     deliveryMethod === "Own Delivery" &&
@@ -713,10 +798,11 @@ exports.placeOrder = functions
                     freeDelivery,
                     deliveryMethod,
                     deliveryPrice,
-                    merchantId,
+                    storeId,
                     storeName: storeDetails.storeName,
                     paymentMethod,
-                    merchantOrderNumber: newMerchantOrderNumber,
+                    storeOrderNumber: newStoreOrderNumber,
+                    merchantOrderNumber: newStoreOrderNumber,
                     userOrderNumber: newUserOrderNumber,
                   };
 
@@ -727,17 +813,19 @@ exports.placeOrder = functions
                   // Place order
                   transaction.set(orderItemsRef.doc(orderId), {
                     items: orderItems,
-                    merchantId,
+                    storeId,
                     userId,
                   });
                   transaction.set(ordersRef.doc(orderId), {
                     ...orderDetails,
                     messages: [],
+                    userUnreadCount: 0,
+                    storeUnreadCount: 0,
                   });
 
                   // Update order number
-                  transaction.update(merchantRef, {
-                    orderNumber: newMerchantOrderNumber,
+                  transaction.update(storeRef, {
+                    orderNumber: newStoreOrderNumber,
                   });
 
                   transaction.update(userRef, {
@@ -752,35 +840,39 @@ exports.placeOrder = functions
                   });
 
                   // Update store item document quantities
-                  merchantItemDocs.map(async (merchantItemDoc) => {
+                  storeItemDocs.map(async (storeItemDoc) => {
                     const docItems = await currentStoreItems.filter(
-                      (item) => item.doc === merchantItemDoc
+                      (item) => item.doc === storeItemDoc
                     );
-                    const merchantItemDocRef = db
-                      .collection("merchants")
-                      .doc(merchantId)
+                    const storeItemDocRef = db
+                      .collection("stores")
+                      .doc(storeId)
                       .collection("items")
-                      .doc(merchantItemDoc);
+                      .doc(storeItemDoc);
 
-                    transaction.update(merchantItemDocRef, {
+                    transaction.update(storeItemDocRef, {
                       items: [...docItems],
                     });
                   });
 
                   transaction.update(userCartRef, {
-                    [merchantId]: firestore.FieldValue.delete(),
+                    [storeId]: firestore.FieldValue.delete(),
                   });
 
                   return { orderDetails, storeDetails, orderId };
                 });
             })
             .then(async ({ orderDetails, storeDetails, orderId }) => {
-              // Send Order Notification to merchant
+              // Send Order Notification to store
               let fcmTokens = [];
 
               fcmTokens = storeDetails.fcmTokens && [...storeDetails.fcmTokens];
 
-              const { merchantOrderNumber, subTotal } = orderDetails;
+              const {
+                merchantOrderNumber,
+                storeOrderNumber,
+                subTotal,
+              } = orderDetails;
               const orderNotifications = [];
 
               if (fcmTokens) {
@@ -788,7 +880,7 @@ exports.placeOrder = functions
                   orderNotifications.push({
                     notification: {
                       title: "You've got a new order!",
-                      body: `Order # ${merchantOrderNumber}; Order Total: ${subTotal}`,
+                      body: `Order # ${storeOrderNumber}; Order Total: ${subTotal}`,
                     },
                     data: {
                       type: "new_order",
@@ -801,7 +893,7 @@ exports.placeOrder = functions
 
               orderNotifications.length > 0
                 ? await admin.messaging().sendAll(orderNotifications)
-                : functions.logger.log(`No fcm token found for ${merchantId}`);
+                : functions.logger.log(`No fcm token found for ${storeId}`);
 
               return {
                 s: 200,
@@ -818,7 +910,7 @@ exports.placeOrder = functions
 exports.addReview = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { orderId, merchantId, reviewBody, rating } = data;
+    const { orderId, storeId, reviewBody, rating } = data;
     const userId = context.auth.uid;
     const userName = context.auth.token.name || null;
     const userPhoneNumber = context.auth.token.phone_number;
@@ -834,15 +926,15 @@ exports.addReview = functions
     try {
       return db.runTransaction(async (transaction) => {
         const orderRef = db.collection("orders").doc(orderId);
-        const merchantRef = db.collection("merchants").doc(merchantId);
+        const storeRef = db.collection("stores").doc(storeId);
         let orderReviewPage = 0;
         let newRatingAverage = 0;
 
         return await transaction
-          .getAll(orderRef, merchantRef)
+          .getAll(orderRef, storeRef)
           .then((documents) => {
             const orderDoc = documents[0];
-            const merchantDoc = documents[1];
+            const storeDoc = documents[1];
             const timeStamp = firestore.Timestamp.now().toMillis();
 
             const review = {
@@ -857,8 +949,8 @@ exports.addReview = functions
             if (orderDoc.exists) {
               if (orderDoc.data().reviewed) {
                 throw new Error("The order is already reviewed");
-              } else if (orderDoc.data().merchantId !== merchantId) {
-                throw new Error("Merchant Ids do not match");
+              } else if (orderDoc.data().storeId !== storeId) {
+                throw new Error("Store Ids do not match");
               } else {
                 transaction.update(orderDoc.ref, {
                   reviewed: true,
@@ -867,8 +959,8 @@ exports.addReview = functions
               }
             }
 
-            if (merchantDoc.exists) {
-              const { reviewNumber, ratingAverage } = merchantDoc.data();
+            if (storeDoc.exists) {
+              const { reviewNumber, ratingAverage } = storeDoc.data();
 
               if (reviewNumber && ratingAverage) {
                 orderReviewPage = Math.floor(reviewNumber / 2000);
@@ -880,8 +972,8 @@ exports.addReview = functions
                 newRatingAverage = (ratingAverage + rating) / 2;
 
                 const orderReviewPageRef = db
-                  .collection("merchants")
-                  .doc(merchantId)
+                  .collection("stores")
+                  .doc(storeId)
                   .collection("order_reviews")
                   .doc(`${orderReviewPage}`);
 
@@ -892,8 +984,8 @@ exports.addReview = functions
                 newRatingAverage = rating;
 
                 const firstOrderReviewPageRef = db
-                  .collection("merchants")
-                  .doc(merchantId)
+                  .collection("stores")
+                  .doc(storeId)
                   .collection("order_reviews")
                   .doc("1");
 
@@ -902,12 +994,12 @@ exports.addReview = functions
                 });
               }
 
-              transaction.update(merchantRef, {
+              transaction.update(storeRef, {
                 reviewNumber: firestore.FieldValue.increment(1),
                 ratingAverage: newRatingAverage,
               });
             } else {
-              return { s: 500, m: "Error, merchant was not found" };
+              return { s: 500, m: "Error, store was not found" };
             }
 
             return { s: 200, m: "Review placed!" };
@@ -921,57 +1013,71 @@ exports.addReview = functions
 exports.addStoreItem = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { item } = data;
-    const merchantId = context.auth.token.merchantId || null;
+    const { item, storeId } = data;
+    const storeIds = context.auth.token.storeIds;
 
-    if (!merchantId) {
-      return { s: 400, m: "Error: User is not authorized" };
-    }
-
-    if (item === undefined) {
+    if (!item || !storeId) {
       return { s: 400, m: "Bad argument: Incomplete data" };
     }
 
-    const merchantItemsRef = db
-      .collection("merchants")
-      .doc(merchantId)
+    if (!storeIds) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
+
+    const userStoreRoles = storeIds[storeId];
+
+    if (storeIds && !userStoreRoles) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
+
+    if (
+      !userStoreRoles.includes("admin") &&
+      !userStoreRoles.includes("inventory_manager") &&
+      !userStoreRoles.includes("manager")
+    ) {
+      return {
+        s: 400,
+        m:
+          "Error: User does not have required permissions. Please contact Marketeer support to set a role for your account if required.",
+      };
+    }
+
+    const storeItemsRef = db
+      .collection("stores")
+      .doc(storeId)
       .collection("items");
 
     try {
       let newItem = JSON.parse(item);
-      let merchantItemsDocId = null;
+      let storeItemsDocId = null;
 
-      functions.logger.log(merchantId);
-
-      await merchantItemsRef
+      await storeItemsRef
         .where("itemNumber", "<", 1500)
         .orderBy("itemNumber", "desc")
         .limit(1)
         .get()
         .then((querySnapshot) => {
           if (!querySnapshot.empty) {
-            querySnapshot.forEach((doc, index) => {
-              merchantItemsDocId = doc.id;
+            return querySnapshot.forEach((doc, index) => {
+              storeItemsDocId = doc.id;
             });
-
-            return functions.logger.log("exist");
           }
 
           return functions.logger.log("does not exist");
         });
 
-      functions.logger.log(merchantItemsDocId);
+      functions.logger.log(storeItemsDocId);
 
-      if (merchantItemsDocId) {
-        const merchantItemsDoc = db
-          .collection("merchants")
-          .doc(merchantId)
+      if (storeItemsDocId) {
+        const storeItemsDoc = db
+          .collection("stores")
+          .doc(storeId)
           .collection("items")
-          .doc(merchantItemsDocId);
+          .doc(storeItemsDocId);
 
-        newItem.doc = merchantItemsDocId;
+        newItem.doc = storeItemsDocId;
 
-        return await merchantItemsDoc
+        return await storeItemsDoc
           .update({
             items: firestore.FieldValue.arrayUnion(newItem),
             itemNumber: firestore.FieldValue.increment(1),
@@ -981,11 +1087,11 @@ exports.addStoreItem = functions
             return { s: 200, m: "Item Added!" };
           });
       } else {
-        const initialMerchantItemsRef = merchantItemsRef.doc();
-        newItem.doc = initialMerchantItemsRef.id;
+        const initialstoreItemsRef = storeItemsRef.doc();
+        newItem.doc = initialstoreItemsRef.id;
 
-        return await merchantItemsRef
-          .doc(initialMerchantItemsRef.id)
+        return await storeItemsRef
+          .doc(initialstoreItemsRef.id)
           .set({
             items: [newItem],
             itemNumber: 1,
@@ -1001,9 +1107,149 @@ exports.addStoreItem = functions
     }
   });
 
-exports.setMerchantAdminToken = functions
+exports.editUserStoreRoles = functions
   .region("asia-northeast1")
-  .firestore.document("merchant_admins/{merchantId}")
+  .https.onCall(async (data, context) => {
+    const { roles, userId, storeId } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!userId || !roles || !storeId) {
+      return { s: 400, m: "Error: Incomplete data provided" };
+    }
+
+    let newStoreIds = { [storeId]: roles };
+    /*
+    const previousUserCustomClaims = (await admin.auth().getUser(userId))
+      .customClaims;
+
+    if (previousUserCustomClaims.storeIds) {
+      newStoreIds = {
+        ...previousUserCustomClaims.storeIds,
+        [storeId]: roles,
+      };
+    }*/
+
+    return await admin
+      .auth()
+      .setCustomUserClaims(userId, {
+        storeIds: {
+          ...newStoreIds,
+        },
+      })
+      .then(async () => {
+        await firestore()
+          .collection("stores")
+          .doc(storeId)
+          .update({
+            [`users.${userId}`]: roles,
+          });
+
+        return {
+          s: 200,
+          m: `Successfully added roles (${roles.map((role, index) => {
+            return `${role}${roles.length - 1 !== index ? ", " : ""}`;
+          })}) for ${storeId} to ${userId}!`,
+        };
+      });
+  });
+
+exports.getUserFromEmail = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { email } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!email) {
+      return { s: 400, m: "Error: Incomplete data provided" };
+    }
+
+    return admin.auth().getUserByEmail(email);
+  });
+
+exports.getUserFromUserId = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { userIds } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!userIds) {
+      return { s: 400, m: "Error: Incomplete data provided" };
+    }
+
+    return admin.auth().getUsers(userIds);
+  });
+
+exports.createStoreEmployeeAccount = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { email, password, role, storeId } = data;
+
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    try {
+      return admin
+        .auth()
+        .getUserByEmail(email)
+        .then(async (user) => {
+          return {
+            s: 400,
+            m: `Error: User with email "${email}" already exists.`,
+          };
+        })
+        .catch((error) => {
+          if (error.code === "auth/user-not-found") {
+            return admin
+              .auth()
+              .createUser({
+                email,
+                password,
+              })
+              .then(async (user) => {
+                const userId = user.uid;
+                const storeIds = { [storeId]: role };
+
+                return await admin
+                  .auth()
+                  .setCustomUserClaims(userId, {
+                    storeIds,
+                  })
+                  .then(async () => {
+                    await firestore()
+                      .collection("stores")
+                      .doc(storeId)
+                      .update({
+                        [`users.${role}.${userId}`]: true,
+                      });
+
+                    return {
+                      s: 200,
+                      m: `Successfully added ${storeId} token to ${userId}`,
+                    };
+                  });
+              });
+          }
+
+          return { s: 400, m: error };
+        });
+    } catch (error) {
+      return { s: 400, m: error };
+    }
+  });
+
+exports.setMarketeerAdminToken = functions
+  .region("asia-northeast1")
+  .firestore.document("marketeer_admins/userIds")
   .onWrite(async (change, context) => {
     const newData = change.after.exists ? change.after.data() : null;
     const previousData = change.before.exists ? change.before.data() : null;
@@ -1012,9 +1258,7 @@ exports.setMerchantAdminToken = functions
       ? Object.keys(previousData).length
       : 0;
 
-    const merchantId = context.params.merchantId;
-    const merchantIds = { [context.params.merchantId]: true };
-    const role = "admin";
+    const role = "marketeer-admin";
 
     if (newDataLength >= previousDataLength) {
       Object.entries(newData).map(async ([userId, value]) => {
@@ -1028,7 +1272,7 @@ exports.setMerchantAdminToken = functions
 
           return await admin
             .auth()
-            .setCustomUserClaims(userId, { merchantId, merchantIds, role })
+            .setCustomUserClaims(userId, { role })
             .then(async () => {
               const newUserCustomClaims = (await admin.auth().getUser(userId))
                 .customClaims;
@@ -1038,8 +1282,8 @@ exports.setMerchantAdminToken = functions
               );
 
               await firestore()
-                .collection("merchant_admins")
-                .doc(merchantId)
+                .collection("marketeer_admins")
+                .doc("userIds")
                 .update({
                   [userId]: true,
                 })
@@ -1048,7 +1292,7 @@ exports.setMerchantAdminToken = functions
                 });
 
               return functions.logger.log(
-                `Added ${merchantId} token to ${userId}`
+                `Added marketeer-admin token to ${userId}`
               );
             })
             .catch((err) => {
@@ -1066,7 +1310,7 @@ exports.setMerchantAdminToken = functions
             .setCustomUserClaims(userId, null)
             .then(() => {
               return functions.logger.log(
-                `Removed ${merchantId} token from ${userId}`
+                `Removed marketeer-admin token from ${userId}`
               );
             })
             .catch((err) => {
@@ -1087,9 +1331,10 @@ exports.sendMessageNotification = functions
     const newValue = change.after.data();
     const previousValue = change.before.data();
     const {
-      merchantId,
+      storeId,
       userId,
       merchantOrderNumber,
+      storeOrderNumber,
       userOrderNumber,
       userName,
       storeName,
@@ -1098,18 +1343,14 @@ exports.sendMessageNotification = functions
     if (newValue.messages.length !== previousValue.messages.length) {
       const lastMessage = newValue.messages.slice(-1).pop();
       const receivingUserData =
-        lastMessage.user._id === merchantId
+        lastMessage.user._id === storeId
           ? (await firestore().collection("users").doc(userId).get()).data()
-          : (
-              await firestore().collection("merchants").doc(merchantId).get()
-            ).data();
+          : (await firestore().collection("stores").doc(storeId).get()).data();
       const receivingUserFcmTokens = receivingUserData.fcmTokens;
       const receivingUserName =
-        lastMessage.user._id === merchantId ? storeName : userName;
+        lastMessage.user._id === storeId ? storeName : userName;
       const orderNumber =
-        lastMessage.user._id === merchantId
-          ? userOrderNumber
-          : merchantOrderNumber;
+        lastMessage.user._id === storeId ? userOrderNumber : storeOrderNumber;
 
       let messageNotifications = [];
 
@@ -1137,4 +1378,83 @@ exports.sendMessageNotification = functions
         ? await admin.messaging().sendAll(messageNotifications)
         : null;
     }
+  });
+
+exports.generateThumbnail = functions.storage
+  .object()
+  .onFinalize(async (object) => {
+    // Thumbnail prefix added to file names.
+    const THUMB_PREFIX = "thumb_";
+
+    // Max height and width of the thumbnail in pixels.
+    const THUMB_MAX_HEIGHT = 360;
+    const THUMB_MAX_WIDTH = 360;
+
+    // File and directory paths.
+    const filePath = object.name;
+    const contentType = object.contentType; // This is the image MIME type
+    const fileDir = path.dirname(filePath);
+    const fileName = path.basename(filePath);
+    const thumbFilePath = path.normalize(
+      path.join(fileDir, `${THUMB_PREFIX}${fileName}`)
+    );
+    const tempLocalFile = path.join(os.tmpdir(), filePath);
+    const tempLocalDir = path.dirname(tempLocalFile);
+    const tempLocalThumbFile = path.join(os.tmpdir(), thumbFilePath);
+
+    functions.logger.log("directory", fileDir);
+    if (
+      fileDir.search("/images/orders") >= 0 ||
+      fileDir.search("/images/store_categories") >= 0
+    ) {
+      return functions.logger.log("Will not process order images");
+    }
+
+    // Exit if this is triggered on a file that is not an image.
+    if (!contentType.startsWith("image/")) {
+      return functions.logger.log("This is not an image.");
+    }
+
+    // Exit if the image is already a thumbnail.
+    if (fileName.startsWith(THUMB_PREFIX)) {
+      return functions.logger.log("Already a Thumbnail.");
+    }
+
+    // Cloud Storage files.
+    const bucket = admin.storage().bucket(object.bucket);
+    const file = bucket.file(filePath);
+    const metadata = {
+      contentType: contentType,
+      // To enable Client-side caching you can set the Cache-Control headers here. Uncomment below.
+      // 'Cache-Control': 'public,max-age=3600',
+    };
+
+    // Create the temp directory where the storage file will be downloaded.
+    await mkdirp(tempLocalDir);
+    // Download file from bucket.
+    await file.download({ destination: tempLocalFile });
+    functions.logger.log("The file has been downloaded to", tempLocalFile);
+    // Generate a thumbnail using ImageMagick.
+    await spawn(
+      "convert",
+      [
+        tempLocalFile,
+        "-thumbnail",
+        `${THUMB_MAX_WIDTH}x${THUMB_MAX_HEIGHT}>`,
+        tempLocalThumbFile,
+      ],
+      { capture: ["stdout", "stderr"] }
+    );
+    functions.logger.log("Thumbnail created at", tempLocalThumbFile);
+    // Uploading the Thumbnail.
+    await bucket.upload(tempLocalThumbFile, {
+      destination: thumbFilePath,
+      metadata: metadata,
+    });
+    console.log("Thumbnail uploaded to Storage at", thumbFilePath);
+    // Once the image has been uploaded delete the local files to free up disk space.
+    fs.unlinkSync(tempLocalFile);
+    fs.unlinkSync(tempLocalThumbFile);
+
+    return functions.logger.log("Thumbnail saved to storage.");
   });
