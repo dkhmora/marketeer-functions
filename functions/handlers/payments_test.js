@@ -11,6 +11,7 @@ const {
   getDragonPaySecretKeyTest,
   payment_methods_test,
 } = require("../util/dragonpay_test");
+const { getDragonPayApiKey } = require("../util/dragonpay");
 
 /* Dragonpay Test API (getAvailablePaymentProcessors)
 exports.getAvailablePaymentProcessorsTest = functions
@@ -114,6 +115,60 @@ exports.getAvailablePaymentProcessorsTest = functions
   });
   */
 
+exports.executePayoutTest = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    if (context.auth.token.role !== "marketeer-admin") {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    const apiKey = await getDragonPayApiKey();
+    const merchantTxnId = db.collection("merchant_payouts").doc().id;
+    const userName = "Daryl Kiel H. Mora";
+    const amount = "1000";
+    const currency = "PHP";
+    const description = "Test Payout";
+    const procId = "GCSH";
+    const procDetail = "09175690965";
+    const runDate = "2020-09-03";
+    const email = "dkhmora@gmail.com";
+    const mobileNo = "09175690965";
+
+    const url =
+      "https://test.dragonpay.ph/DragonPayWebService/PayoutService.asmx";
+    const requestHeaders = {
+      "Content-Type": "text/xml; charset=utf-8",
+      SOAPAction: "http://api.dragonpay.ph/RequestPayoutEx",
+    };
+    const xml = `<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+                  <soap:Body>
+                    <RequestPayoutEx xmlns="http://api.dragonpay.ph/">
+                      <apiKey>${apiKey}</apiKey>
+                      <merchantTxnId>${merchantTxnId}</merchantTxnId>
+                      <userName>${userName}</userName>
+                      <amount>${amount}</amount>
+                      <currency>${currency}</currency>
+                      <description>${description}</description>
+                      <procId>${procId}</procId>
+                      <procDetail>${procDetail}</procDetail>
+                      <runDate>${runDate}</runDate>
+                      <email>${email}</email>
+                      <mobileNo>${mobileNo}</mobileNo>
+                    </RequestPayoutEx>
+                  </soap:Body>
+                </soap:Envelope>`;
+
+    const { response } = await soapRequest({
+      url: url,
+      headers: requestHeaders,
+      xml: xml,
+      timeout: 10000,
+    });
+    const { headers, body, statusCode } = response;
+
+    return functions.logger.log(body);
+  });
+
 exports.getMerchantPaymentLinkTest = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
@@ -121,25 +176,15 @@ exports.getMerchantPaymentLinkTest = functions
       return { s: 400, m: "User is not authorized for this action" };
     }
 
-    const { amount, email, processId } = data;
-    const { fixedFee, percentageFee } = payment_methods_test[processId];
+    const { topUpAmount, email, processId } = data;
+    const minAmount = 1000;
 
-    const pFee = percentageFee
-      ? percentageFee
-        ? 1 - percentageFee * 0.01
-        : 1
-      : 1;
-    const fFee = fixedFee ? fixedFee : 0;
-
-    const topUpAmount = amount / pFee + fFee;
-    const roundedTopUpAmount =
-      Math.round((topUpAmount + Number.EPSILON) * 100) / 100;
-
-    functions.logger.log(
-      `amount: ${amount}, `,
-      `topUpAmount: ${topUpAmount}, `,
-      `roundedTopUpAmount: ${roundedTopUpAmount}`
-    );
+    if (topUpAmount < minAmount) {
+      return {
+        s: 400,
+        m: "The minimimum top up amount is 1000 pesos. Please try again.",
+      };
+    }
 
     const merchantId = Object.keys(context.auth.token.merchantIds)[0];
     const { storeName } = (
@@ -151,7 +196,7 @@ exports.getMerchantPaymentLinkTest = functions
     const paymentInput = {
       merchantId: "MARKETEERPH",
       transactionId,
-      amount,
+      amount: topUpAmount,
       currency: "PHP",
       description,
       email,
@@ -163,8 +208,84 @@ exports.getMerchantPaymentLinkTest = functions
     const secretKey = await getDragonPaySecretKeyTest();
     const timeStamp = firestore.Timestamp.now().toMillis();
 
+    return await db
+      .collection("merchant_payments")
+      .doc(transactionId)
+      .set({
+        transactionId,
+        paymentAmount: topUpAmount,
+        topUpAmount,
+        merchantId,
+        currency: "PHP",
+        description,
+        email,
+        processId,
+        status: "U",
+        createdAt: timeStamp,
+        updatedAt: timeStamp,
+      })
+      .then(() => {
+        return { s: 200, m: requestPaymentTest(secretKey, paymentInput) };
+      })
+      .catch((err) => {
+        functions.logger.error(err);
+
+        return { s: 400, m: err.message };
+      });
+  });
+
+exports.getOrderPaymentLinkTest = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    if (!context.auth.uid || !context.auth.token.phone_number) {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    const { email } = context.auth.token;
+    const { orderId } = data;
+    const orderDoc = db.collection("orders").doc(orderId);
+    const orderData = (await orderDoc.get()).data();
+    const {
+      userId,
+      processId,
+      subTotal,
+      storeName,
+      merchantId,
+      orderStatus,
+      paymentLink,
+    } = orderData;
+
+    if (context.auth.uid !== userId) {
+      return { s: 400, m: "Error: User is not authorized for this action" };
+    }
+
+    if (!orderStatus.unpaid.status) {
+      return { s: 400, m: "Error: Order status is not valid for payment!" };
+    }
+
+    if (paymentLink) {
+      return { s: 200, m: paymentLink };
+    }
+
+    const description = `Payment to ${storeName} for Order ${orderId} (Not inclusive of delivery fee)`;
+
+    const paymentInput = {
+      merchantId: "MARKETEERPH",
+      transactionId: orderId,
+      amount: subTotal,
+      currency: "PHP",
+      description,
+      email,
+      processId,
+      param1: "order_payment",
+      param2: userId,
+    };
+
+    const secretKey = await getDragonPaySecretKeyTest();
+    const timeStamp = firestore.Timestamp.now().toMillis();
+
     functions.logger.log({
-      transactionId,
+      orderId,
       paymentAmount: amount,
       topUpAmount: roundedTopUpAmount,
       merchantId,
@@ -177,7 +298,31 @@ exports.getMerchantPaymentLinkTest = functions
       updatedAt: timeStamp,
     });
 
-    return { s: 200, m: requestPaymentTest(secretKey, paymentInput) };
+    return await db
+      .collection("merchant_payments")
+      .doc(transactionId)
+      .set({
+        paymentAmount: subTotal,
+        merchantId,
+        currency: "PHP",
+        description,
+        email,
+        processId,
+        status: "U",
+        createdAt: timeStamp,
+        updatedAt: timeStamp,
+      })
+      .then(() => {
+        return orderDoc.update({ paymentLink, updatedAt: timeStamp });
+      })
+      .then(() => {
+        return { s: 200, m: requestPaymentTest(secretKey, paymentInput) };
+      })
+      .catch((err) => {
+        functions.logger.error(err);
+
+        return { s: 400, m: err.message };
+      });
   });
 
 exports.checkPaymentTest = async (req, res) => {
@@ -186,6 +331,10 @@ exports.checkPaymentTest = async (req, res) => {
 
   if (param1 === "merchant_topup") {
     transactionDoc = db.collection("merchant_payments").doc(txnid);
+  }
+
+  if (param1 === "order_payment") {
+    transactionDoc = db.collection("order_payments").doc(txnid);
   }
 
   res.setHeader("content-type", "text/plain");
@@ -198,14 +347,17 @@ exports.checkPaymentTest = async (req, res) => {
     if (digest !== confirmDigest) {
       throw new Error("Digest mismatch. Please try again.");
     } else {
-      const merchantPaymentData = (await transactionDoc.get()).data();
-      const { merchantId, topUpAmount } = merchantPaymentData;
-      const merchantDoc = db.collection("merchants").doc(merchantId);
+      const paymentData = (await transactionDoc.get()).data();
+      const merchantDoc = db
+        .collection("merchants")
+        .doc(paymentData.merchantId);
       const merchantData = (await merchantDoc.get()).data();
       const { creditData } = merchantData;
-      const newCredits = creditData.credits + topUpAmount;
 
-      if (status === "S") {
+      if (status === "S" && param1 === "merchant_topup") {
+        const { topUpAmount } = paymentData;
+        const newCredits = creditData.credits + topUpAmount;
+
         await merchantDoc.set(
           {
             creditData: {
@@ -218,10 +370,63 @@ exports.checkPaymentTest = async (req, res) => {
         );
       }
 
+      if (status === "S" && param1 === "order_payment") {
+        const { procId, paymentAmount } = paymentData;
+        const { paymentGatewayFee } = payment_methods_test[procId];
+        const merchantCreditedAmount = paymentAmount - paymentGatewayFee;
+        const orderDoc = db.collection("orders").doc(txnid);
+        const merchantOrderTransactionSummaryDoc = db
+          .collection("merchants_order_transaction_summary")
+          .doc(paymentData.merchantId);
+        const timeStamp = firestore.Timestamp.now().toMillis();
+
+        await orderDoc
+          .set(
+            {
+              orderStatus: {
+                paid: {
+                  status: true,
+                  updatedAt: timeStamp,
+                },
+              },
+              updatedAt: timeStamp,
+            },
+            { merge: true }
+          )
+          .then(() => {
+            return merchantOrderTransactionSummaryDoc.set(
+              {
+                currentPeriod: {
+                  amount: firestore.FieldValue.increment(
+                    merchantCreditedAmount
+                  ),
+                  noDeductionAmount: firestore.FieldValue.increment(
+                    paymentAmount
+                  ),
+                  successfulTransactionCount: firestore.FieldValue.increment(1),
+                  updatedAt: timeStamp,
+                },
+                lifetimePeriod: {
+                  amount: firestore.FieldValue.increment(
+                    merchantCreditedAmount
+                  ),
+                  noDeductionAmount: firestore.FieldValue.increment(
+                    paymentAmount
+                  ),
+                  successfulTransactionCount: firestore.FieldValue.increment(1),
+                  updatedAt: timeStamp,
+                },
+                updatedAt: timeStamp,
+              },
+              { merge: true }
+            );
+          });
+      }
+
       await transactionDoc.update({
         status,
         refno,
-        updatedAt: firestore.Timestamp.now().toMillis(),
+        updatedAt: timeStamp,
       });
     }
 

@@ -14,8 +14,27 @@ service firebase.storage {
       return request.auth.token.merchantIds[merchantId] || request.auth.token.merchantId == merchantId;
     }
 
+    function userIsAssignedStoreRole(storeId, role) {
+      return role in request.auth.token.storeIds[storeId];
+    }
+
+    function userIsStoreAdmin(storeId) {
+      return 'admin' in request.auth.token.storeIds[storeId];
+    }
+
     match /images/merchants/{merchantId}/{allPaths=**} {
       allow write: if userIsMerchantAdmin(merchantId);
+      allow read: if userIsAuthenticated();
+    }
+
+    match /images/stores/{storeId}/items/{fileName} {
+      allow write: if userIsStoreAdmin(storeId) || userIsAssignedStoreRole(storeId, 'manager')
+      || userIsAssignedStoreRole(storeId, 'inventory_manager');
+      allow read: if userIsAuthenticated();
+    }
+
+    match /images/stores/{storeId}/{fileName} {
+      allow write: if userIsStoreAdmin(storeId) || userIsAssignedStoreRole(storeId, 'manager');
       allow read: if userIsAuthenticated();
     }
 
