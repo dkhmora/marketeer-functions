@@ -66,7 +66,8 @@ service cloud.firestore {
       allow update: if userIsAssignedStoreRole(storeId, 'manager')
       || userIsStoreAdmin(storeId) && notUpdating('creditData')
       && notUpdating('visibleToPublic') && notUpdating('storeCategory')
-      && notUpdating('storeName') && notUpdating('storeLocation');
+      && notUpdating('storeName') && notUpdating('storeLocation')
+      && notUpdating('users') && notUpdating('orderNumber');
       allow read: if userIsAuthenticated();
       allow create: if userIsMarketeerAdmin();
     }
