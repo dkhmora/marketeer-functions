@@ -4,6 +4,7 @@ const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const client = new SecretManagerServiceClient();
 
 const payment_methods_test = {
+  BOG: { paymentGatewayFee: 10, disabled: false },
   BDO: { paymentGatewayFee: 10, disabled: false },
   CBC: { paymentGatewayFee: 10, disabled: false },
   LBPA: { paymentGatewayFee: 10, disabled: false },

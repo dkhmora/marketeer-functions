@@ -1,4 +1,4 @@
-const { db } = require("../util/admin");
+const { db } = require("./util/admin");
 const functions = require("firebase-functions");
 const { SHA1 } = require("crypto-js");
 const { firestore } = require("firebase-admin");
@@ -6,7 +6,7 @@ const {
   getDragonPaySecretKey,
   requestPayment,
   payment_methods,
-} = require("../util/dragonpay");
+} = require("./util/dragonpay");
 const soapRequest = require("easy-soap-request");
 const xml2js = require("xml2js");
 const parser = new xml2js.Parser(/* options */);
