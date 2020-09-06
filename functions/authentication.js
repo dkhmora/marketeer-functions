@@ -1,4 +1,5 @@
 const firebase = require("firebase");
+const functions = require("firebase-functions");
 const { db, admin } = require("./util/admin");
 
 exports.signInWithPhoneAndPassword = functions

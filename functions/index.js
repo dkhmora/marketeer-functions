@@ -2,8 +2,10 @@
 const functions = require("firebase-functions");
 const firebase = require("firebase");
 const { firestore } = require("firebase-admin");
-const { FB_CONFIG, HERE_API_KEY } = require("./util/config");
+const { FB_CONFIG } = require("./util/config");
 const { db, admin } = require("./util/admin");
+const app = require("express")();
+
 const {
   scheduledFirestoreExport,
   generateThumbnail,
@@ -19,11 +21,13 @@ const {
   addReview,
   sendMessageNotification,
 } = require("./user_services");
+const { changeOrderStatus, addStoreItem } = require("./store_services");
 const {
   setUserAsMerchant,
   assignStoreToMerchant,
   getUserFromEmail,
   getUserFromUserId,
+  editUserStoreRoles,
   createStoreEmployeeAccount,
   setMarketeerAdminToken,
 } = require("./admin_services");
@@ -45,11 +49,6 @@ firebase.initializeApp({
   ...FB_CONFIG,
 });
 
-const app = require("express")();
-
-app.post("/payment/checkPayment", checkPayment);
-app.get("/payment/result", result);
-
 // ** Dragonpay Test **
 app.post("/payment/checkPaymentTest", checkPaymentTest);
 app.get("/payment/resultTest", resultTest);
@@ -60,6 +59,9 @@ exports.executePayoutTest = executePayoutTest;
 // ** Dragonpay Test **
 
 // ** Dragonpay PRODUCTION **
+app.post("/payment/checkPayment", checkPayment);
+app.get("/payment/result", result);
+
 exports.getMerchantPaymentLink = getMerchantPaymentLink;
 exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
 // ** Dragonpay PRODUCTION **
