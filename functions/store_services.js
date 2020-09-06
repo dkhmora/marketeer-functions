@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const { firestore } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
+const { getOrderPaymentLinkTest } = require("./payments_test");
 
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
@@ -34,7 +35,7 @@ exports.changeOrderStatus = functions
         let orderData, storeData, merchantData;
 
         return await transaction
-          .getAll(orderRef, storeRef, merchantRef)
+          .getAll(orderRef, storeRef)
           .then(async (documents) => {
             const orderDoc = documents[0];
             const storeDoc = documents[1];
@@ -44,13 +45,15 @@ exports.changeOrderStatus = functions
             storeData = storeDoc.data();
             merchantData = merchantDoc.data();
 
-            const { storeId, orderStatus, paymentMethod, subTotal } = orderData;
-            const { stores, creditData } = merchantData;
             const {
-              credits,
-              creditThreshold,
-              transactionFeePercentage,
-            } = creditData;
+              storeId,
+              orderStatus,
+              paymentMethod,
+              subTotal,
+              transactionFee,
+            } = orderData;
+            const { stores, creditData } = merchantData;
+            const { credits, creditThreshold } = creditData;
 
             const userStoreRoles = storeIds[storeId];
 
@@ -133,8 +136,6 @@ exports.changeOrderStatus = functions
               });
 
               if (nextStatus === "shipped") {
-                const transactionFee =
-                  Math.round(subTotal * transactionFeePercentage) / 100;
                 const newCredits = credits - transactionFee;
 
                 transaction.update(merchantRef, {
@@ -156,6 +157,10 @@ exports.changeOrderStatus = functions
                       },
                       token,
                     });
+                  });
+
+                  transaction.update(storeRef, {
+                    creditThresholdReached: true,
                   });
                 }
 
@@ -280,7 +285,7 @@ exports.addStoreItem = functions
     const { item, storeId, timeStamp } = data;
     const storeIds = context.auth.token.storeIds;
 
-    if (!item || !storeId || !timeStamp) {
+    if (!item || !storeId) {
       return { s: 400, m: "Bad argument: Incomplete data" };
     }
 

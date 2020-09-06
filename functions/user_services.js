@@ -177,7 +177,7 @@ exports.placeOrder = functions
                     );
                   }
 
-                  if (storeDetails.creditData.creditThresholdReached) {
+                  if (storeDetails.creditThresholdReached) {
                     throw new Error(
                       `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
                     );

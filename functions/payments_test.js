@@ -241,18 +241,25 @@ exports.getOrderPaymentLinkTest = async ({ orderData, orderId }) => {
     userEmail,
     processId,
     subTotal,
+    deliveryMethod,
+    deliveryPrice,
     storeName,
     storeId,
     merchantId,
   } = orderData;
+  const { paymentGatewayFee } = payment_methods_test[processId];
   const transactionDoc = db.collection("order_payments").doc(orderId);
-
-  const description = `Payment to ${storeName} for Order ${orderId} (Not inclusive of delivery fee)`;
+  const description =
+    deliveryMethod !== "Own Delivery"
+      ? `Payment to ${storeName} for Order ${orderId} (Not inclusive of delivery fee)`
+      : `Payment to ${storeName} for Order ${orderId} (Inclusive of delivery fee)`;
+  const amount =
+    deliveryMethod === "Own Delivery" ? subTotal + deliveryPrice : subTotal;
 
   const paymentInput = {
     merchantId: "MARKETEERPH",
     transactionId: orderId,
-    amount: subTotal,
+    amount,
     currency: "PHP",
     description,
     email: userEmail,
@@ -264,22 +271,10 @@ exports.getOrderPaymentLinkTest = async ({ orderData, orderId }) => {
   const secretKey = await getDragonPaySecretKeyTest();
   const timeStamp = firestore.Timestamp.now().toMillis();
 
-  functions.logger.log({
-    orderId,
-    paymentAmount: subTotal,
-    storeId,
-    currency: "PHP",
-    description,
-    userEmail,
-    processId,
-    status: "U",
-    createdAt: timeStamp,
-    updatedAt: timeStamp,
-  });
-
   return await transactionDoc
     .set({
-      paymentAmount: subTotal,
+      paymentAmount: amount,
+      paymentGatewayFee,
       storeId,
       merchantId,
       currency: "PHP",
@@ -297,15 +292,6 @@ exports.getOrderPaymentLinkTest = async ({ orderData, orderId }) => {
 
 exports.checkPaymentTest = async (req, res) => {
   const { txnid, status, digest, refno, message, param1, param2 } = req.body;
-  let transactionDoc = null;
-
-  if (param1 === "merchant_topup") {
-    transactionDoc = db.collection("merchant_payments").doc(txnid);
-  }
-
-  if (param1 === "order_payment") {
-    transactionDoc = db.collection("order_payments").doc(txnid);
-  }
 
   res.setHeader("content-type", "text/plain");
 
@@ -313,15 +299,20 @@ exports.checkPaymentTest = async (req, res) => {
     const secretKey = await getDragonPaySecretKeyTest();
     const confirmMessage = `${txnid}:${refno}:${status}:${message}:${secretKey}`;
     const confirmDigest = SHA1(confirmMessage).toString();
+    const transactionDoc =
+      param1 === "merchant_topup"
+        ? db.collection("merchant_payments").doc(txnid)
+        : param1 === "order_payment"
+        ? db.collection("order_payments").doc(txnid)
+        : null;
+    const timeStamp = firestore.Timestamp.now().toMillis();
 
     if (digest !== confirmDigest) {
       throw new Error("Digest mismatch. Please try again.");
     } else {
       const paymentData = (await transactionDoc.get()).data();
       const { topUpAmount, merchantId, processId, paymentAmount } = paymentData;
-      const merchantDoc = db
-        .collection("merchants")
-        .doc(merchantId);
+      const merchantDoc = db.collection("merchants").doc(merchantId);
       const merchantData = (await merchantDoc.get()).data();
       const { creditData } = merchantData;
 
@@ -343,25 +334,26 @@ exports.checkPaymentTest = async (req, res) => {
 
         if (param1 === "order_payment") {
           const { paymentGatewayFee } = payment_methods_test[processId];
-          const merchantCreditedAmount = paymentAmount - paymentGatewayFee;
           const orderDoc = db.collection("orders").doc(txnid);
-          const timeStamp = firestore.Timestamp.now().toMillis();
           const monthStart = moment(timeStamp, "x")
             .startOf("month")
             .format("MMDDYYYY");
           const monthEnd = moment(timeStamp, "x")
             .endOf("month")
             .format("MMDDYYYY");
-          const merchantBillingDoc = db
+          const merchantInvoiceDoc = db
             .collection("merchants")
             .doc(merchantId)
-            .collection("billing")
+            .collection("invoices")
             .doc(`${monthStart}-${monthEnd}`);
 
           await orderDoc
             .set(
               {
                 orderStatus: {
+                  unpaid: {
+                    status: false,
+                  },
                   paid: {
                     status: true,
                     updatedAt: timeStamp,
@@ -372,7 +364,21 @@ exports.checkPaymentTest = async (req, res) => {
               { merge: true }
             )
             .then(() => {
-              return merchantBillingDoc.update({
+              return merchantInvoiceDoc.get();
+            })
+            .then((document) => {
+              if (document.exists) {
+                return merchantInvoiceDoc.update({
+                  successfulTransactionCount: firestore.FieldValue.increment(1),
+                  totalAmount: firestore.FieldValue.increment(paymentAmount),
+                  totalPaymentGatewayDeductedAmount: firestore.FieldValue.increment(
+                    paymentGatewayFee
+                  ),
+                  updatedAt: timeStamp,
+                });
+              }
+
+              return merchantInvoiceDoc.set({
                 startDate: moment(monthEnd, "MMDDYYYY")
                   .startOf("month")
                   .format("MM-DD-YYYY"),
@@ -387,12 +393,35 @@ exports.checkPaymentTest = async (req, res) => {
                   paymentGatewayFee
                 ),
                 updatedAt: timeStamp,
+                createdAt: timeStamp,
               });
             });
         }
       }
 
-      await transactionDoc.update({
+      if (status === "F") {
+        if (param1 === "order_payment") {
+          const orderDoc = db.collection("orders").doc(txnid);
+
+          await orderDoc.set(
+            {
+              orderStatus: {
+                unpaid: {
+                  status: false,
+                },
+                cancelled: {
+                  status: true,
+                  updatedAt: timeStamp,
+                },
+              },
+              updatedAt: timeStamp,
+            },
+            { merge: true }
+          );
+        }
+      }
+
+      transactionDoc.update({
         status,
         refno,
         updatedAt: timeStamp,

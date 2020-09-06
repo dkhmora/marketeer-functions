@@ -42,7 +42,6 @@ const {
   resultTest,
   getMerchantPaymentLinkTest,
   executePayoutTest,
-  getOrderPaymentLinkTest,
 } = require("./payments_test");
 
 firebase.initializeApp({
@@ -54,7 +53,6 @@ app.post("/payment/checkPaymentTest", checkPaymentTest);
 app.get("/payment/resultTest", resultTest);
 
 exports.getMerchantPaymentLinkTest = getMerchantPaymentLinkTest;
-exports.getOrderPaymentLinkTest = getOrderPaymentLinkTest;
 exports.executePayoutTest = executePayoutTest;
 // ** Dragonpay Test **
 
@@ -112,6 +110,7 @@ exports.placeOrderTest = functions
       storeUserEmail,
       storeSelectedDeliveryMethod,
       storeSelectedPaymentMethod,
+      storeAssignedMerchantId,
     } = JSON.parse(orderInfo);
 
     const userId = context.auth.uid;
@@ -137,7 +136,8 @@ exports.placeOrderTest = functions
         !userName ||
         !storeCartItems ||
         !storeSelectedDeliveryMethod ||
-        !storeSelectedPaymentMethod
+        !storeSelectedPaymentMethod ||
+        !storeAssignedMerchantId
       ) {
         return { s: 400, m: "Bad argument: Incomplete request" };
       }
@@ -169,8 +169,18 @@ exports.placeOrderTest = functions
           return await db
             .runTransaction(async (transaction) => {
               const storeRef = db.collection("stores").doc(storeId);
+              const storeMerchantId = storeAssignedMerchantId[storeId];
+              const storeMerchantRef = db
+                .collection("merchants")
+                .doc(storeMerchantId);
               const storeItemDocs = [];
               const storeItemRefs = [];
+
+              if (!storeMerchantId) {
+                throw new Error(
+                  `Sorry, a store you ordered from is currently not available. Please try again later or place another order from another store.`
+                );
+              }
 
               await storeCartItems[storeId].map((item) => {
                 if (!storeItemDocs.includes(item.doc)) {
@@ -188,13 +198,15 @@ exports.placeOrderTest = functions
               const currentStoreItems = [];
               let userData = {};
               let storeDetails = {};
+              let merchantDetails = {};
 
               return await transaction
-                .getAll(userRef, storeRef, ...storeItemRefs)
+                .getAll(userRef, storeRef, storeMerchantRef, ...storeItemRefs)
                 .then(async (documents) => {
                   const userDoc = documents[0];
                   const storeDoc = documents[1];
-                  const storeItemsDocs = documents.slice(2, documents.length);
+                  const storeMerchantDoc = documents[2];
+                  const storeItemsDocs = documents.slice(3, documents.length);
 
                   await storeItemsDocs.map((storeItemDoc) => {
                     currentStoreItems.push(...storeItemDoc.data().items);
@@ -223,7 +235,21 @@ exports.placeOrderTest = functions
                     );
                   }
 
-                  if (storeDetails.creditData.creditThresholdReached) {
+                  if (storeDetails.creditThresholdReached) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    );
+                  }
+
+                  if (storeMerchantDoc.exists) {
+                    merchantDetails = storeMerchantDoc.data();
+                  } else {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    );
+                  }
+
+                  if (!merchantDetails.stores.includes(storeId)) {
                     throw new Error(
                       `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
                     );
@@ -300,6 +326,10 @@ exports.placeOrderTest = functions
                     orderStatus,
                     quantity,
                     subTotal,
+                    transactionFee:
+                      subTotal *
+                      merchantDetails.creditData.transactionFeePercentage *
+                      0.01,
                     freeDelivery,
                     deliveryMethod,
                     deliveryPrice,
