@@ -10,10 +10,6 @@ service cloud.firestore {
       return request.auth.uid;
     }
 
-    function userIsMerchantAdmin(merchantId) {
-      return request.auth.token.merchantIds[merchantId] || request.auth.token.merchantId == merchantId;
-    }
-
     function userIsSignedUp() {
       return userIsAuthenticated() && request.auth.token.phone_number != null;
     }
@@ -44,16 +40,12 @@ service cloud.firestore {
     }
 
     match /merchants/{merchantId} {
-      allow update: if userIsMerchantAdmin(merchantId)
-      && notUpdating('creditData') && notUpdating('visibleToPublic')
-      && notUpdating('storeCategory') && notUpdating('storeName')
-      && notUpdating('storeLocation');
-      allow read: if userIsAuthenticated();
-      allow create: if userIsMarketeerAdmin();
+      allow read: if userOwnsDoc(merchantId);
+      allow read, create: if userIsMarketeerAdmin();
     }
 
-    match /merchant_payments/{paymentId} {
-      allow read: if userIsMerchantAdmin(resource.data.merchantId) || userIsStoreAdmin(resource.data.storeId);
+    match /merchant_topups/{paymentId} {
+      allow read: if userOwnsDoc(resource.data.merchantId);
     }
 
     match /stores/{storeId} {
@@ -113,10 +105,6 @@ service cloud.firestore {
       allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
       allow read, update: if userIsAssignedStoreRole(resource.data.storeId, 'manager') || userIsAssignedStoreRole(resource.data.storeId, 'inventory_manager')
       || userIsStoreAdmin(resource.data.storeId);
-    }
-
-    match /merchants/{merchantId}/order_reviews/{allPages=**} {
-      allow read: if userIsAuthenticated();
     }
 
     match /users/{userId} {

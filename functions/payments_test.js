@@ -169,10 +169,13 @@ exports.executePayoutTest = functions
     return functions.logger.log(body);
   });
 
-exports.getMerchantPaymentLinkTest = functions
+exports.getMerchantTopUpPaymentLinkTest = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    if (!context.auth.token.merchantIds) {
+    const { uid, role } = context.auth.token;
+    const userId = uid;
+
+    if (!userId || !role || (role && role !== "merchant")) {
       return { s: 400, m: "User is not authorized for this action" };
     }
 
@@ -185,13 +188,8 @@ exports.getMerchantPaymentLinkTest = functions
         m: "The minimimum top up amount is 1000 pesos. Please try again.",
       };
     }
-
-    const merchantId = Object.keys(context.auth.token.merchantIds)[0];
-    const { storeName } = (
-      await db.collection("merchants").doc(merchantId).get()
-    ).data();
-    const description = `${storeName} Markee Credits Top Up`;
-    const transactionId = db.collection("merchant_payments").doc().id;
+    const description = `Merchant #${userId} Markee Credits Top Up`;
+    const transactionId = db.collection("merchant_topups").doc().id;
 
     const paymentInput = {
       merchantId: "MARKETEERPH",
@@ -202,20 +200,20 @@ exports.getMerchantPaymentLinkTest = functions
       email,
       processId,
       param1: "merchant_topup",
-      param2: merchantId,
+      param2: userId,
     };
 
     const secretKey = await getDragonPaySecretKeyTest();
     const timeStamp = firestore.Timestamp.now().toMillis();
 
     return await db
-      .collection("merchant_payments")
+      .collection("merchant_topups")
       .doc(transactionId)
       .set({
         transactionId,
         paymentAmount: topUpAmount,
         topUpAmount,
-        merchantId,
+        merchantId: userId,
         currency: "PHP",
         description,
         email,
@@ -301,7 +299,7 @@ exports.checkPaymentTest = async (req, res) => {
     const confirmDigest = SHA1(confirmMessage).toString();
     const transactionDoc =
       param1 === "merchant_topup"
-        ? db.collection("merchant_payments").doc(txnid)
+        ? db.collection("merchant_topups").doc(txnid)
         : param1 === "order_payment"
         ? db.collection("order_payments").doc(txnid)
         : null;

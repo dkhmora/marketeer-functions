@@ -40,7 +40,7 @@ const {
 const {
   checkPaymentTest,
   resultTest,
-  getMerchantPaymentLinkTest,
+  getMerchantTopUpPaymentLinkTest,
   executePayoutTest,
 } = require("./payments_test");
 
@@ -52,7 +52,7 @@ firebase.initializeApp({
 app.post("/payment/checkPaymentTest", checkPaymentTest);
 app.get("/payment/resultTest", resultTest);
 
-exports.getMerchantPaymentLinkTest = getMerchantPaymentLinkTest;
+exports.getMerchantTopUpPaymentLinkTest = getMerchantTopUpPaymentLinkTest;
 exports.executePayoutTest = executePayoutTest;
 // ** Dragonpay Test **
 
