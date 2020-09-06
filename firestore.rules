@@ -108,6 +108,13 @@ service cloud.firestore {
       || userIsStoreAdmin(resource.data.storeId);
     }
 
+    match /order_payments/{orderId} {
+      allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
+      allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
+      allow read, update: if userIsAssignedStoreRole(resource.data.storeId, 'manager') || userIsAssignedStoreRole(resource.data.storeId, 'inventory_manager')
+      || userIsStoreAdmin(resource.data.storeId);
+    }
+
     match /merchants/{merchantId}/order_reviews/{allPages=**} {
       allow read: if userIsAuthenticated();
     }

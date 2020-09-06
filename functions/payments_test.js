@@ -1,5 +1,4 @@
-const { db } = require("./util/admin");
-const axios = require("axios");
+const { db, admin } = require("./util/admin");
 const functions = require("firebase-functions");
 const { SHA1 } = require("crypto-js");
 const { firestore } = require("firebase-admin");
@@ -251,8 +250,8 @@ exports.getOrderPaymentLinkTest = async ({ orderData, orderId }) => {
   const transactionDoc = db.collection("order_payments").doc(orderId);
   const description =
     deliveryMethod !== "Own Delivery"
-      ? `Payment to ${storeName} for Order ${orderId} (Not inclusive of delivery fee)`
-      : `Payment to ${storeName} for Order ${orderId} (Inclusive of delivery fee)`;
+      ? `Payment to ${storeName} for Order #${orderId} (Not inclusive of delivery fee)`
+      : `Payment to ${storeName} for Order #${orderId} (Inclusive of delivery fee)`;
   const amount =
     deliveryMethod === "Own Delivery" ? subTotal + deliveryPrice : subTotal;
 
@@ -277,6 +276,7 @@ exports.getOrderPaymentLinkTest = async ({ orderData, orderId }) => {
       paymentGatewayFee,
       storeId,
       merchantId,
+      userId,
       currency: "PHP",
       description,
       userEmail,
@@ -311,13 +311,19 @@ exports.checkPaymentTest = async (req, res) => {
       throw new Error("Digest mismatch. Please try again.");
     } else {
       const paymentData = (await transactionDoc.get()).data();
-      const { topUpAmount, merchantId, processId, paymentAmount } = paymentData;
-      const merchantDoc = db.collection("merchants").doc(merchantId);
-      const merchantData = (await merchantDoc.get()).data();
-      const { creditData } = merchantData;
+      const {
+        topUpAmount,
+        merchantId,
+        storeId,
+        processId,
+        paymentAmount,
+      } = paymentData;
 
       if (status === "S") {
         if (param1 === "merchant_topup") {
+          const merchantDoc = db.collection("merchants").doc(merchantId);
+          const merchantData = (await merchantDoc.get()).data();
+          const { creditData } = merchantData;
           const newCredits = creditData.credits + topUpAmount;
 
           await merchantDoc.set(
@@ -333,6 +339,7 @@ exports.checkPaymentTest = async (req, res) => {
         }
 
         if (param1 === "order_payment") {
+          const storeDoc = db.collection("stores").doc(storeId);
           const { paymentGatewayFee } = payment_methods_test[processId];
           const orderDoc = db.collection("orders").doc(txnid);
           const monthStart = moment(timeStamp, "x")
@@ -371,7 +378,7 @@ exports.checkPaymentTest = async (req, res) => {
                 return merchantInvoiceDoc.update({
                   successfulTransactionCount: firestore.FieldValue.increment(1),
                   totalAmount: firestore.FieldValue.increment(paymentAmount),
-                  totalPaymentGatewayDeductedAmount: firestore.FieldValue.increment(
+                  totalPaymentGatewayFees: firestore.FieldValue.increment(
                     paymentGatewayFee
                   ),
                   updatedAt: timeStamp,
@@ -389,12 +396,35 @@ exports.checkPaymentTest = async (req, res) => {
                 totalAmount: firestore.FieldValue.increment(
                   merchantCreditedAmount
                 ),
-                totalPaymentGatewayDeductedAmount: firestore.FieldValue.increment(
+                totalPaymentGatewayFees: firestore.FieldValue.increment(
                   paymentGatewayFee
                 ),
                 updatedAt: timeStamp,
                 createdAt: timeStamp,
               });
+            })
+            .then(async () => {
+              const storeData = (await storeDoc.get()).data();
+              const fcmTokens = storeData.fcmTokens ? storeData.fcmTokens : [];
+              const orderNotifications = [];
+
+              fcmTokens.map((token) => {
+                orderNotifications.push({
+                  notification: {
+                    title: `Order #${txnid} has been Paid!`,
+                    body: `Order #${txnid} is now paid for. You may now process the order.`,
+                  },
+                  data: {
+                    type: "order_update",
+                    txnid,
+                  },
+                  token,
+                });
+              });
+
+              return orderNotifications.length > 0 && fcmTokens.length > 0
+                ? await admin.messaging().sendAll(orderNotifications)
+                : null;
             });
         }
       }

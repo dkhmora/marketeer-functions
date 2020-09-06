@@ -35,7 +35,7 @@ exports.changeOrderStatus = functions
         let orderData, storeData, merchantData;
 
         return await transaction
-          .getAll(orderRef, storeRef)
+          .getAll(orderRef, storeRef, merchantRef)
           .then(async (documents) => {
             const orderDoc = documents[0];
             const storeDoc = documents[1];
@@ -213,13 +213,13 @@ exports.changeOrderStatus = functions
               if (paymentMethod === "Online Payment") {
                 notificationTitle = "Your order has been confirmed!";
                 notificationBody = `Order #${userOrderNumber} is now waiting for your payment. Pay for your order now by contacting ${storeName} through the Marketeer chat screen.`;
-                type = "order_cart";
+                type = "order_update";
               }
 
               if (paymentMethod === "Online Banking") {
                 notificationTitle = "Your order has been confirmed!";
                 notificationBody = `Order #${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
-                type = "order_payment";
+                type = "order_update";
               }
             }
 
@@ -238,13 +238,13 @@ exports.changeOrderStatus = functions
               }
 
               notificationBody = `Order #${userOrderNumber} is now being processed by ${storeName}! Please be on the lookout for updates by ${storeName} in the chat.`;
-              type = "order_details";
+              type = "order_update";
             }
 
             if (nextStatus === "shipped") {
               notificationTitle = "Your order has been shipped!";
               notificationBody = `Order # ${userOrderNumber} has now been shipped! Please wait for your order to arrive and get ready to pay if you ordered via COD. Thank you for shopping using Marketeer!`;
-              type = "order_details";
+              type = "order_update";
             }
 
             if (nextStatus === "completed") {
