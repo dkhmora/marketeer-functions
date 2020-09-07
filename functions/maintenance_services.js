@@ -6,6 +6,7 @@ const spawn = require("child-process-promise").spawn;
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const { admin } = require("./util/admin");
 
 exports.scheduledFirestoreExport = functions
   .region("asia-northeast1")
@@ -31,8 +32,9 @@ exports.scheduledFirestoreExport = functions
       });
   });
 
-  exports.generateThumbnail = functions.storage
-  .object()
+exports.generateThumbnail = functions
+  .region("asia-northeast1")
+  .storage.object()
   .onFinalize(async (object) => {
     // Thumbnail prefix added to file names.
     const THUMB_PREFIX = "thumb_";

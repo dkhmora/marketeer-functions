@@ -43,10 +43,14 @@ const {
   getMerchantTopUpPaymentLinkTest,
   executePayoutTest,
 } = require("./payments_test");
+const { returnOrderPayments } = require("./miscellaneous");
 
 firebase.initializeApp({
   ...FB_CONFIG,
 });
+
+// Testing
+app.post("/returnOrderPayments", returnOrderPayments);
 
 // ** Dragonpay Test **
 app.post("/payment/checkPaymentTest", checkPaymentTest);

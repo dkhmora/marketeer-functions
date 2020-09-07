@@ -340,17 +340,20 @@ exports.checkPaymentTest = async (req, res) => {
           const storeDoc = db.collection("stores").doc(storeId);
           const { paymentGatewayFee } = payment_methods_test[processId];
           const orderDoc = db.collection("orders").doc(txnid);
-          const monthStart = moment(timeStamp, "x")
-            .startOf("month")
+          const weekStart = moment(timeStamp, "x")
+            .subtract(1, "weeks")
+            .weekday(6)
+            .startOf("day")
             .format("MMDDYYYY");
-          const monthEnd = moment(timeStamp, "x")
-            .endOf("month")
+          const weekEnd = moment(timeStamp, "x")
+            .weekday(5)
+            .endOf("day")
             .format("MMDDYYYY");
           const merchantInvoiceDoc = db
             .collection("merchants")
             .doc(merchantId)
             .collection("invoices")
-            .doc(`${monthStart}-${monthEnd}`);
+            .doc(`${weekStart}-${weekEnd}`);
 
           await orderDoc
             .set(
@@ -384,12 +387,8 @@ exports.checkPaymentTest = async (req, res) => {
               }
 
               return merchantInvoiceDoc.set({
-                startDate: moment(monthEnd, "MMDDYYYY")
-                  .startOf("month")
-                  .format("MM-DD-YYYY"),
-                endDate: moment(monthEnd, "MMDDYYYY")
-                  .endOf("month")
-                  .format("MM-DD-YYYY"),
+                startDate: moment(weekStart, "MMDDYYYY").format("MM-DD-YYYY"),
+                endDate: moment(weekEnd, "MMDDYYYY").format("MM-DD-YYYY"),
                 successfulTransactionCount: firestore.FieldValue.increment(1),
                 totalAmount: firestore.FieldValue.increment(
                   merchantCreditedAmount

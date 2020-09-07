@@ -1,5 +1,8 @@
 const request = require("request");
 const { db, admin } = require("./util/admin");
+const moment = require("moment");
+const functions = require("firebase-functions");
+require("moment-timezone");
 
 exports.ipAddressTest = async (req, res) => {
   return request.get(
@@ -55,4 +58,51 @@ exports.copyCollection = async (req, res) => {
   } else {
     functions.logger.log("Firebase batch operation completed.");
   }
+};
+
+exports.returnOrderPayments = async (req, res) => {
+  const { merchantId } = req.body;
+
+  const now = moment();
+
+  const weekStart = now
+    .clone()
+    .tz("Etc/GMT+8")
+    .subtract(1, "weeks")
+    .weekday(6)
+    .startOf("day")
+    .format("x");
+  const weekEnd = now
+    .clone()
+    .tz("Etc/GMT+8")
+    .weekday(5)
+    .endOf("day")
+    .format("x");
+  const orderPaymentsList = [];
+
+  functions.logger.log(weekStart, weekEnd);
+
+  return await db
+    .collection("order_payments")
+    .where("merchantId", "==", merchantId)
+    .where("status", "==", "S")
+    .where("updatedAt", ">=", Number(weekStart))
+    .orderBy("updatedAt", "desc")
+    .startAfter(Number(weekEnd))
+    .get()
+    .then((querySnapshot) => {
+      functions.logger.log(querySnapshot.docs);
+      return querySnapshot.docs.forEach((documentSnapshot, index) => {
+        const orderPayment = documentSnapshot.data();
+
+        functions.logger.log("payment", orderPayment);
+
+        if (orderPayment.updatedAt <= weekEnd) {
+          orderPaymentsList.push(orderPayment);
+        }
+      });
+    })
+    .then(() => {
+      return res.status(200).json({ orderPaymentsList });
+    });
 };
