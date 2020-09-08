@@ -41,12 +41,12 @@ service cloud.firestore {
 
     match /merchants/{merchantId} {
       allow read: if userOwnsDoc(merchantId);
-      allow read, create: if userIsMarketeerAdmin();
+      allow read, write: if userIsMarketeerAdmin();
     }
 
     match /merchants/{merchantId}/disbursement_periods/{allPages=**} {
       allow read: if userOwnsDoc(merchantId);
-      allow read, create: if userIsMarketeerAdmin();
+      allow read, write: if userIsMarketeerAdmin();
     }
 
     match /merchant_topups/{paymentId} {
@@ -54,15 +54,16 @@ service cloud.firestore {
     }
 
     match /stores/{storeId} {
-      allow update: if userIsAssignedStoreRole(storeId, 'manager')
-      || userIsStoreAdmin(storeId) && notUpdating('creditData')
+      allow update: if (userIsAssignedStoreRole(storeId, 'manager')
+      || userIsStoreAdmin(storeId)) && notUpdating('creditData')
       && notUpdating('visibleToPublic') && notUpdating('storeCategory')
       && notUpdating('storeName') && notUpdating('storeLocation')
       && notUpdating('users') && notUpdating('orderNumber')
       && notUpdating('devOnly') && notUpdating('reviewNumber')
-      && notUpdating('ratingAverage') && notUpdating('address');
+      && notUpdating('ratingAverage') && notUpdating('address')
+      && notUpdating('creditThresholdReached');
       allow read: if userIsAuthenticated();
-      allow create: if userIsMarketeerAdmin();
+      allow write: if userIsMarketeerAdmin();
     }
 
     match /stores/{storeId}/items/{itemPageIds} {
@@ -75,8 +76,7 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      allow read: if (userIsSignedUp() && userOwnsDoc(resource.data.userId))
-      || userIsMerchantAdmin(resource.data.merchantId);
+      allow read: if (userIsSignedUp() && userOwnsDoc(resource.data.userId));
       allow update: if userIsSignedUp() && userOwnsDoc(resource.data.userId)
       && notUpdating('createdAt') && notUpdating('deliveryAddress')
       && notUpdating('deliveryCoordinates') && notUpdating('merchantId')
@@ -86,27 +86,25 @@ service cloud.firestore {
       && notUpdating('userCoordinates') && notUpdating('userId')
       && notUpdating('userName') && notUpdating('userOrderNumber') 
       && notUpdating('userPhoneNumber') && notUpdating('merchantOrderNumber')
+      && notUpdating('storeId')
       && !(resource.data.orderStatus.completed.status && documentIsOlderThan(7, resource.data.orderStatus.completed.updatedAt))
       && !(resource.data.orderStatus.cancelled.status && notUpdating('userUnreadCount'));
-      allow update: if userIsMerchantAdmin(resource.data.merchantId)
-      && !(resource.data.orderStatus.completed.status && documentIsOlderThan(7, resource.data.orderStatus.completed.updatedAt))
-      && !resource.data.orderStatus.cancelled.status;
-      allow update: if (userIsAssignedStoreRole(resource.data.storeId, 'manager') || userIsAssignedStoreRole(resource.data.storeId, 'inventory_manager')
-      || userIsStoreAdmin(resource.data.storeId)) && !resource.data.orderStatus.cancelled.status
+      allow update: if (userIsAssignedStoreRole(resource.data.storeId, 'manager')
+      || userIsAssignedStoreRole(resource.data.storeId, 'inventory_manager')
+      || userIsStoreAdmin(resource.data.storeId))
+      && !resource.data.orderStatus.cancelled.status
       && !(resource.data.orderStatus.completed.status && documentIsOlderThan(7, resource.data.orderStatus.completed.updatedAt));
       allow read: if userIsAssignedStoreRole(resource.data.storeId, 'manager') || userIsAssignedStoreRole(resource.data.storeId, 'inventory_manager')
       || userIsStoreAdmin(resource.data.storeId);
     }
 
     match /order_items/{orderId} {
-      allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
       allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
       allow read, update: if userIsAssignedStoreRole(resource.data.storeId, 'manager') || userIsAssignedStoreRole(resource.data.storeId, 'inventory_manager')
       || userIsStoreAdmin(resource.data.storeId);
     }
 
     match /order_payments/{orderId} {
-      allow read, update: if userIsMerchantAdmin(resource.data.merchantId);
       allow read: if userIsSignedUp() && userOwnsDoc(resource.data.userId);
       allow read, update: if userIsAssignedStoreRole(resource.data.storeId, 'manager') || userIsAssignedStoreRole(resource.data.storeId, 'inventory_manager')
       || userIsStoreAdmin(resource.data.storeId);
