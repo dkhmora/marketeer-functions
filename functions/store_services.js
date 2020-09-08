@@ -2,6 +2,12 @@ const functions = require("firebase-functions");
 const { firestore } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 const { getOrderPaymentLink } = require("./payments");
+const {
+  isPointInBoundingBox,
+  getBoundingBox,
+  getGeohashRange,
+  getBoundsOfDistance,
+} = require("./helpers/location");
 
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
@@ -375,6 +381,71 @@ exports.addStoreItem = functions
             return { s: 200, m: "Item Added!" };
           });
       }
+    } catch (e) {
+      return { s: 400, m: e };
+    }
+  });
+
+exports.setStoreDeliveryArea = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { distance, midPoint, storeId } = data;
+    const storeIds = context.auth.token.storeIds;
+
+    if (!distance || !midPoint || !storeId || distance < 1) {
+      return { s: 400, m: "Bad argument: Incomplete data" };
+    }
+
+    if (!storeIds) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
+
+    const userStoreRoles = storeIds[storeId];
+
+    if (storeIds && !userStoreRoles) {
+      return { s: 400, m: "Error: User is not authorized" };
+    }
+
+    if (
+      !userStoreRoles.includes("admin") &&
+      !userStoreRoles.includes("manager")
+    ) {
+      return {
+        s: 400,
+        m:
+          "Error: User does not have required permissions. Please contact Marketeer support to set a role for your account if required.",
+      };
+    }
+
+    try {
+      const storeRef = db.collection("stores").doc(storeId);
+
+      return db.runTransaction(async (transaction) => {
+        const storeData = (await transaction.get(storeRef)).data();
+        const { storeLocation } = storeData;
+        const bounds = await getBoundsOfDistance(midPoint, distance);
+        const boundingBox = await getBoundingBox(bounds[0], bounds[1]);
+        const { lower, upper } = await getGeohashRange(bounds, distance);
+
+        if (isPointInBoundingBox(storeLocation, boundingBox)) {
+          await transaction.update(storeRef, {
+            deliveryCoordinates: {
+              lowerRange: lower,
+              upperRange: upper,
+              boundingBox,
+            },
+            updatedAt: firestore.Timestamp.now().toMillis(),
+          });
+
+          return { s: 200, m: "Successfully set delivery area box!" };
+        }
+
+        return {
+          s: 400,
+          m:
+            "Error: Store location is not inside delivery area box. Please try again.",
+        };
+      });
     } catch (e) {
       return { s: 400, m: e };
     }

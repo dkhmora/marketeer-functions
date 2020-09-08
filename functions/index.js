@@ -21,7 +21,11 @@ const {
   addReview,
   sendMessageNotification,
 } = require("./user_services");
-const { changeOrderStatus, addStoreItem } = require("./store_services");
+const {
+  changeOrderStatus,
+  addStoreItem,
+  setStoreDeliveryArea,
+} = require("./store_services");
 const {
   setUserAsMerchant,
   assignStoreToMerchant,
@@ -90,6 +94,7 @@ exports.editUserStoreRoles = editUserStoreRoles;
 // Store Services
 exports.changeOrderStatus = changeOrderStatus;
 exports.addStoreItem = addStoreItem;
+exports.setStoreDeliveryArea = setStoreDeliveryArea;
 
 // User Services
 exports.getAddressFromCoordinates = getAddressFromCoordinates;
