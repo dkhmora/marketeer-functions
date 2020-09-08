@@ -341,18 +341,20 @@ exports.checkPaymentTest = async (req, res) => {
           const { paymentGatewayFee } = payment_methods_test[processId];
           const orderDoc = db.collection("orders").doc(txnid);
           const weekStart = moment(timeStamp, "x")
+            .tz("Etc/GMT+8")
             .subtract(1, "weeks")
             .weekday(6)
             .startOf("day")
             .format("MMDDYYYY");
           const weekEnd = moment(timeStamp, "x")
+            .tz("Etc/GMT+8")
             .weekday(5)
             .endOf("day")
             .format("MMDDYYYY");
           const merchantInvoiceDoc = db
             .collection("merchants")
             .doc(merchantId)
-            .collection("invoices")
+            .collection("disbursement_periods")
             .doc(`${weekStart}-${weekEnd}`);
 
           await orderDoc
@@ -389,13 +391,10 @@ exports.checkPaymentTest = async (req, res) => {
               return merchantInvoiceDoc.set({
                 startDate: moment(weekStart, "MMDDYYYY").format("MM-DD-YYYY"),
                 endDate: moment(weekEnd, "MMDDYYYY").format("MM-DD-YYYY"),
-                successfulTransactionCount: firestore.FieldValue.increment(1),
-                totalAmount: firestore.FieldValue.increment(
-                  merchantCreditedAmount
-                ),
-                totalPaymentGatewayFees: firestore.FieldValue.increment(
-                  paymentGatewayFee
-                ),
+                successfulTransactionCount: 1,
+                totalAmount: paymentAmount,
+                totalPaymentGatewayFees: paymentGatewayFee,
+                status: "Pending",
                 updatedAt: timeStamp,
                 createdAt: timeStamp,
               });

@@ -1,15 +1,16 @@
-const { db } = require("./util/admin");
+const { db, admin } = require("./util/admin");
 const functions = require("firebase-functions");
 const { SHA1 } = require("crypto-js");
 const { firestore } = require("firebase-admin");
+const soapRequest = require("easy-soap-request");
+const xml2js = require("xml2js");
+const parser = new xml2js.Parser(/* options */);
+const moment = require("moment");
 const {
   getDragonPaySecretKey,
   requestPayment,
   payment_methods,
 } = require("./util/dragonpay");
-const soapRequest = require("easy-soap-request");
-const xml2js = require("xml2js");
-const parser = new xml2js.Parser(/* options */);
 
 exports.getAvailablePaymentProcessors = functions
   .region("asia-northeast1")
@@ -112,10 +113,13 @@ exports.getAvailablePaymentProcessors = functions
       });
   });
 
-exports.getMerchantPaymentLink = functions
+exports.getMerchantTopUpPaymentLink = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    if (!context.auth.token.merchantIds) {
+    const { uid, role } = context.auth.token;
+    const userId = uid;
+
+    if (!userId || !role || (role && role !== "merchant")) {
       return { s: 400, m: "User is not authorized for this action" };
     }
 
@@ -128,13 +132,8 @@ exports.getMerchantPaymentLink = functions
         m: "The minimimum top up amount is 1000 pesos. Please try again.",
       };
     }
-
-    const merchantId = Object.keys(context.auth.token.merchantIds)[0];
-    const { storeName } = (
-      await db.collection("merchants").doc(merchantId).get()
-    ).data();
-    const description = `${storeName} Markee Credits Top Up`;
-    const transactionId = db.collection("merchant_payments").doc().id;
+    const description = `Merchant #${userId} Markee Credits Top Up`;
+    const transactionId = db.collection("merchant_topups").doc().id;
 
     const paymentInput = {
       merchantId: "MARKETEERPH",
@@ -145,20 +144,20 @@ exports.getMerchantPaymentLink = functions
       email,
       processId,
       param1: "merchant_topup",
-      param2: merchantId,
+      param2: userId,
     };
 
     const secretKey = await getDragonPaySecretKey();
     const timeStamp = firestore.Timestamp.now().toMillis();
 
     return await db
-      .collection("merchant_payments")
+      .collection("merchant_topups")
       .doc(transactionId)
       .set({
         transactionId,
         paymentAmount: topUpAmount,
         topUpAmount,
-        merchantId,
+        merchantId: userId,
         currency: "PHP",
         description,
         email,
@@ -177,13 +176,64 @@ exports.getMerchantPaymentLink = functions
       });
   });
 
+exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
+  const {
+    userId,
+    userEmail,
+    processId,
+    subTotal,
+    deliveryMethod,
+    deliveryPrice,
+    storeName,
+    storeId,
+    merchantId,
+  } = orderData;
+  const { paymentGatewayFee } = payment_methods[processId];
+  const transactionDoc = db.collection("order_payments").doc(orderId);
+  const description =
+    deliveryMethod !== "Own Delivery"
+      ? `Payment to ${storeName} for Order #${orderId} (Not inclusive of delivery fee)`
+      : `Payment to ${storeName} for Order #${orderId} (Inclusive of delivery fee)`;
+  const amount =
+    deliveryMethod === "Own Delivery" ? subTotal + deliveryPrice : subTotal;
+
+  const paymentInput = {
+    merchantId: "MARKETEERPH",
+    transactionId: orderId,
+    amount,
+    currency: "PHP",
+    description,
+    email: userEmail,
+    processId,
+    param1: "order_payment",
+    param2: userId,
+  };
+
+  const secretKey = await getDragonPaySecretKey();
+  const timeStamp = firestore.Timestamp.now().toMillis();
+
+  return await transactionDoc
+    .set({
+      paymentAmount: amount,
+      paymentGatewayFee,
+      storeId,
+      merchantId,
+      userId,
+      currency: "PHP",
+      description,
+      userEmail,
+      processId,
+      status: "U",
+      createdAt: timeStamp,
+      updatedAt: timeStamp,
+    })
+    .then(() => {
+      return requestPayment(secretKey, paymentInput).url;
+    });
+};
+
 exports.checkPayment = async (req, res) => {
   const { txnid, status, digest, refno, message, param1, param2 } = req.body;
-  let transactionDoc = null;
-
-  if (param1 === "merchant_topup") {
-    transactionDoc = db.collection("merchant_payments").doc(txnid);
-  }
 
   res.setHeader("content-type", "text/plain");
 
@@ -191,34 +241,160 @@ exports.checkPayment = async (req, res) => {
     const secretKey = await getDragonPaySecretKey();
     const confirmMessage = `${txnid}:${refno}:${status}:${message}:${secretKey}`;
     const confirmDigest = SHA1(confirmMessage).toString();
+    const transactionDoc =
+      param1 === "merchant_topup"
+        ? db.collection("merchant_topups").doc(txnid)
+        : param1 === "order_payment"
+        ? db.collection("order_payments").doc(txnid)
+        : null;
+    const timeStamp = firestore.Timestamp.now().toMillis();
 
     if (digest !== confirmDigest) {
       throw new Error("Digest mismatch. Please try again.");
     } else {
-      const merchantPaymentData = (await transactionDoc.get()).data();
-      const { merchantId, topUpAmount } = merchantPaymentData;
-      const merchantDoc = db.collection("merchants").doc(merchantId);
-      const merchantData = (await merchantDoc.get()).data();
-      const { creditData } = merchantData;
-      const newCredits = creditData.credits + topUpAmount;
+      const paymentData = (await transactionDoc.get()).data();
+      const {
+        topUpAmount,
+        merchantId,
+        storeId,
+        processId,
+        paymentAmount,
+      } = paymentData;
 
       if (status === "S") {
-        await merchantDoc.set(
-          {
-            creditData: {
-              credits: firestore.FieldValue.increment(topUpAmount),
-              creditThresholdReached:
-                newCredits >= creditData.creditThreshold ? false : true,
+        if (param1 === "merchant_topup") {
+          const merchantDoc = db.collection("merchants").doc(merchantId);
+          const merchantData = (await merchantDoc.get()).data();
+          const { creditData } = merchantData;
+          const newCredits = creditData.credits + topUpAmount;
+
+          await merchantDoc.set(
+            {
+              creditData: {
+                credits: firestore.FieldValue.increment(topUpAmount),
+                creditThresholdReached:
+                  newCredits >= creditData.creditThreshold ? false : true,
+              },
             },
-          },
-          { merge: true }
-        );
+            { merge: true }
+          );
+        }
+
+        if (param1 === "order_payment") {
+          const storeDoc = db.collection("stores").doc(storeId);
+          const { paymentGatewayFee } = payment_methods[processId];
+          const orderDoc = db.collection("orders").doc(txnid);
+          const weekStart = moment(timeStamp, "x")
+            .tz("Etc/GMT+8")
+            .subtract(1, "weeks")
+            .weekday(6)
+            .startOf("day")
+            .format("MMDDYYYY");
+          const weekEnd = moment(timeStamp, "x")
+            .tz("Etc/GMT+8")
+            .weekday(5)
+            .endOf("day")
+            .format("MMDDYYYY");
+          const merchantInvoiceDoc = db
+            .collection("merchants")
+            .doc(merchantId)
+            .collection("disbursement_periods")
+            .doc(`${weekStart}-${weekEnd}`);
+
+          await orderDoc
+            .set(
+              {
+                orderStatus: {
+                  unpaid: {
+                    status: false,
+                  },
+                  paid: {
+                    status: true,
+                    updatedAt: timeStamp,
+                  },
+                },
+                updatedAt: timeStamp,
+              },
+              { merge: true }
+            )
+            .then(() => {
+              return merchantInvoiceDoc.get();
+            })
+            .then((document) => {
+              if (document.exists) {
+                return merchantInvoiceDoc.update({
+                  successfulTransactionCount: firestore.FieldValue.increment(1),
+                  totalAmount: firestore.FieldValue.increment(paymentAmount),
+                  totalPaymentGatewayFees: firestore.FieldValue.increment(
+                    paymentGatewayFee
+                  ),
+                  updatedAt: timeStamp,
+                });
+              }
+
+              return merchantInvoiceDoc.set({
+                startDate: moment(weekStart, "MMDDYYYY").format("MM-DD-YYYY"),
+                endDate: moment(weekEnd, "MMDDYYYY").format("MM-DD-YYYY"),
+                successfulTransactionCount: 1,
+                totalAmount: paymentAmount,
+                totalPaymentGatewayFees: paymentGatewayFee,
+                status: "Pending",
+                updatedAt: timeStamp,
+                createdAt: timeStamp,
+              });
+            })
+            .then(async () => {
+              const storeData = (await storeDoc.get()).data();
+              const fcmTokens = storeData.fcmTokens ? storeData.fcmTokens : [];
+              const orderNotifications = [];
+
+              fcmTokens.map((token) => {
+                orderNotifications.push({
+                  notification: {
+                    title: `Order #${txnid} has been Paid!`,
+                    body: `Order #${txnid} is now paid for. You may now process the order.`,
+                  },
+                  data: {
+                    type: "order_update",
+                    txnid,
+                  },
+                  token,
+                });
+              });
+
+              return orderNotifications.length > 0 && fcmTokens.length > 0
+                ? await admin.messaging().sendAll(orderNotifications)
+                : null;
+            });
+        }
       }
 
-      await transactionDoc.update({
+      if (status === "F") {
+        if (param1 === "order_payment") {
+          const orderDoc = db.collection("orders").doc(txnid);
+
+          await orderDoc.set(
+            {
+              orderStatus: {
+                unpaid: {
+                  status: false,
+                },
+                cancelled: {
+                  status: true,
+                  updatedAt: timeStamp,
+                },
+              },
+              updatedAt: timeStamp,
+            },
+            { merge: true }
+          );
+        }
+      }
+
+      transactionDoc.update({
         status,
         refno,
-        updatedAt: firestore.Timestamp.now().toMillis(),
+        updatedAt: timeStamp,
       });
     }
 
@@ -233,7 +409,7 @@ exports.checkPayment = async (req, res) => {
 };
 
 exports.result = async (req, res) => {
-  const { txnid, status, digest, refno, message } = req.query;
+  const { txnid, status, digest, refno, message, param1, param2 } = req.query;
   const secretKey = await getDragonPaySecretKey();
   const confirmMessage = `${txnid}:${refno}:${status}:${message}:${secretKey}`;
   const confirmDigest = SHA1(confirmMessage).toString();
@@ -241,34 +417,68 @@ exports.result = async (req, res) => {
   if (digest !== confirmDigest) {
     throw new Error("Digest mismatch. Please try again.");
   } else {
-    switch (status) {
-      case "S":
-        res.redirect("https://marketeer.ph/app/merchant/payment/success");
-        break;
-      case "F":
-        res.redirect("https://marketeer.ph/app/merchant/payment/failure");
-        break;
-      case "P":
-        res.redirect("https://marketeer.ph/app/merchant/payment/pending");
-        break;
-      case "U":
-        res.redirect("https://marketeer.ph/app/merchant/payment/unknown");
-        break;
-      case "R":
-        res.redirect("https://marketeer.ph/app/merchant/payment/refund");
-        break;
-      case "K":
-        res.redirect("https://marketeer.ph/app/merchant/payment/chargeback");
-        break;
-      case "V":
-        res.redirect("https://marketeer.ph/app/merchant/payment/void");
-        break;
-      case "A":
-        res.redirect("https://marketeer.ph/app/merchant/payment/authorized");
-        break;
-      default:
-        res.redirect("https://marketeer.ph/app/merchant/payment/error");
-        break;
+    if (param1 === "merchant_topup") {
+      switch (status) {
+        case "S":
+          res.redirect("https://marketeer.ph/app/merchant/payment/success");
+          break;
+        case "F":
+          res.redirect("https://marketeer.ph/app/merchant/payment/failure");
+          break;
+        case "P":
+          res.redirect("https://marketeer.ph/app/merchant/payment/pending");
+          break;
+        case "U":
+          res.redirect("https://marketeer.ph/app/merchant/payment/unknown");
+          break;
+        case "R":
+          res.redirect("https://marketeer.ph/app/merchant/payment/refund");
+          break;
+        case "K":
+          res.redirect("https://marketeer.ph/app/merchant/payment/chargeback");
+          break;
+        case "V":
+          res.redirect("https://marketeer.ph/app/merchant/payment/void");
+          break;
+        case "A":
+          res.redirect("https://marketeer.ph/app/merchant/payment/authorized");
+          break;
+        default:
+          res.redirect("https://marketeer.ph/app/merchant/payment/error");
+          break;
+      }
+    }
+
+    if (param1 === "order_payment") {
+      switch (status) {
+        case "S":
+          res.redirect("https://marketeer.ph/app/order/payment/success");
+          break;
+        case "F":
+          res.redirect("https://marketeer.ph/app/order/payment/failure");
+          break;
+        case "P":
+          res.redirect("https://marketeer.ph/app/order/payment/pending");
+          break;
+        case "U":
+          res.redirect("https://marketeer.ph/app/order/payment/unknown");
+          break;
+        case "R":
+          res.redirect("https://marketeer.ph/app/order/payment/refund");
+          break;
+        case "K":
+          res.redirect("https://marketeer.ph/app/order/payment/chargeback");
+          break;
+        case "V":
+          res.redirect("https://marketeer.ph/app/order/payment/void");
+          break;
+        case "A":
+          res.redirect("https://marketeer.ph/app/order/payment/authorized");
+          break;
+        default:
+          res.redirect("https://marketeer.ph/app/order/payment/error");
+          break;
+      }
     }
   }
 };

@@ -44,6 +44,11 @@ service cloud.firestore {
       allow read, create: if userIsMarketeerAdmin();
     }
 
+    match /merchants/{merchantId}/disbursement_periods/{allPages=**} {
+      allow read: if userOwnsDoc(merchantId);
+      allow read, create: if userIsMarketeerAdmin();
+    }
+
     match /merchant_topups/{paymentId} {
       allow read: if userOwnsDoc(resource.data.merchantId);
     }

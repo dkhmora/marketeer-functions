@@ -1,7 +1,7 @@
 const functions = require("firebase-functions");
 const { firestore } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
-const { getOrderPaymentLinkTest } = require("./payments_test");
+const { getOrderPaymentLink } = require("./payments");
 
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
@@ -57,7 +57,7 @@ exports.changeOrderStatus = functions
 
             const userStoreRoles = storeIds[storeId];
 
-            if (!(await stores.find((store) => storeId === store))) {
+            if (!Object.keys(stores).includes(storeId)) {
               throw new Error(
                 "Supplied storeId does not correspond with merchant id"
               );
@@ -125,7 +125,7 @@ exports.changeOrderStatus = functions
                 paymentMethod === "Online Banking" &&
                 currentOrderStatus === "pending"
               ) {
-                orderUpdateData.paymentLink = await getOrderPaymentLinkTest({
+                orderUpdateData.paymentLink = await getOrderPaymentLink({
                   orderData,
                   orderId,
                 });
@@ -159,8 +159,12 @@ exports.changeOrderStatus = functions
                     });
                   });
 
-                  transaction.update(storeRef, {
-                    creditThresholdReached: true,
+                  stores.map((store) => {
+                    const merchantStoreRef = db.collection("stores").doc(store);
+
+                    transaction.update(merchantStoreRef, {
+                      creditThresholdReached: true,
+                    });
                   });
                 }
 

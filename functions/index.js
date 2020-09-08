@@ -34,7 +34,7 @@ const {
 const {
   checkPayment,
   result,
-  getMerchantPaymentLink,
+  getMerchantTopUpPaymentLink,
   getAvailablePaymentProcessors,
 } = require("./payments");
 const {
@@ -50,21 +50,21 @@ firebase.initializeApp({
 });
 
 // Testing
-app.post("/returnOrderPayments", returnOrderPayments);
+//app.post("/returnOrderPayments", returnOrderPayments);
 
 // ** Dragonpay Test **
-app.post("/payment/checkPaymentTest", checkPaymentTest);
-app.get("/payment/resultTest", resultTest);
+//app.post("/payment/checkPaymentTest", checkPaymentTest);
+//app.get("/payment/resultTest", resultTest);
 
-exports.getMerchantTopUpPaymentLinkTest = getMerchantTopUpPaymentLinkTest;
-exports.executePayoutTest = executePayoutTest;
+//exports.getMerchantTopUpPaymentLinkTest = getMerchantTopUpPaymentLinkTest;
+//exports.executePayoutTest = executePayoutTest;
 // ** Dragonpay Test **
 
 // ** Dragonpay PRODUCTION **
 app.post("/payment/checkPayment", checkPayment);
 app.get("/payment/result", result);
 
-exports.getMerchantPaymentLink = getMerchantPaymentLink;
+exports.getMerchantTopUpPaymentLink = getMerchantTopUpPaymentLink;
 exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
 // ** Dragonpay PRODUCTION **
 
@@ -99,6 +99,7 @@ exports.addReview = addReview;
 exports.sendMessageNotification = sendMessageNotification;
 
 // Testing
+/*
 exports.placeOrderTest = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
@@ -239,12 +240,6 @@ exports.placeOrderTest = functions
                     );
                   }
 
-                  if (storeDetails.creditThresholdReached) {
-                    throw new Error(
-                      `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
-                    );
-                  }
-
                   if (storeMerchantDoc.exists) {
                     merchantDetails = storeMerchantDoc.data();
                   } else {
@@ -253,7 +248,24 @@ exports.placeOrderTest = functions
                     );
                   }
 
-                  if (!merchantDetails.stores.includes(storeId)) {
+                  const {
+                    stores,
+                    creditData,
+                    recurringBilling,
+                  } = merchantDetails;
+                  const { creditThreshold, credits } = creditData;
+
+                  if (!Object.keys(stores).includes(storeId)) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    );
+                  }
+
+                  if (
+                    (storeDetails.creditThresholdReached ||
+                      credits < creditThreshold) &&
+                    !recurringBilling
+                  ) {
                     throw new Error(
                       `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
                     );
@@ -461,3 +473,4 @@ exports.placeOrderTest = functions
       return { s: 400, m: `${e}` };
     }
   });
+*/
