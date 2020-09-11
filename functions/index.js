@@ -23,6 +23,7 @@ const {
 } = require("./user_services");
 const {
   changeOrderStatus,
+  changeOrderStatusTest,
   addStoreItem,
   setStoreDeliveryArea,
 } = require("./store_services");
@@ -48,17 +49,19 @@ const {
   executePayoutTest,
 } = require("./payments_test");
 const { returnOrderPayments } = require("./miscellaneous");
+const { createPdf } = require("./pdf_services");
+const { isPointInBoundingBox } = require("./helpers/location");
 
 firebase.initializeApp({
   ...FB_CONFIG,
 });
 
 // Testing
-//app.post("/returnOrderPayments", returnOrderPayments);
+app.post("/returnOrderPayments", returnOrderPayments);
 
 // ** Dragonpay Test **
-//app.post("/payment/checkPaymentTest", checkPaymentTest);
-//app.get("/payment/resultTest", resultTest);
+app.post("/payment/checkPaymentTest", checkPaymentTest);
+app.get("/payment/resultTest", resultTest);
 
 //exports.getMerchantTopUpPaymentLinkTest = getMerchantTopUpPaymentLinkTest;
 //exports.executePayoutTest = executePayoutTest;
@@ -72,6 +75,10 @@ exports.getMerchantTopUpPaymentLink = getMerchantTopUpPaymentLink;
 exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
 // ** Dragonpay PRODUCTION **
 
+// Test
+app.post("/createPdf", createPdf);
+
+// API
 exports.api = functions.region("asia-northeast1").https.onRequest(app);
 
 // Services
@@ -104,7 +111,7 @@ exports.addReview = addReview;
 exports.sendMessageNotification = sendMessageNotification;
 
 // Testing
-/*
+exports.changeOrderStatusTest = changeOrderStatusTest;
 exports.placeOrderTest = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
@@ -253,11 +260,7 @@ exports.placeOrderTest = functions
                     );
                   }
 
-                  const {
-                    stores,
-                    creditData,
-                    recurringBilling,
-                  } = merchantDetails;
+                  const { stores, creditData } = merchantDetails;
                   const { creditThreshold, credits } = creditData;
 
                   if (!Object.keys(stores).includes(storeId)) {
@@ -267,12 +270,30 @@ exports.placeOrderTest = functions
                   }
 
                   if (
-                    (storeDetails.creditThresholdReached ||
-                      credits < creditThreshold) &&
-                    !recurringBilling
+                    !isPointInBoundingBox(
+                      deliveryCoordinates,
+                      storeDetails.deliveryCoordinates.boundingBox
+                    )
                   ) {
                     throw new Error(
-                      `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                      `Sorry, ${storeDetails.storeName} cannot deliver to your area. Please change your delivery location or try placing an order to a different store. Thank you.`
+                    );
+                  }
+
+                  const orderItems = storeCartItems[storeId];
+                  const deliveryMethod = storeSelectedDeliveryMethod[storeId];
+                  const paymentMethod = storeSelectedPaymentMethod[storeId];
+                  const chargeToTopUp =
+                    paymentMethod ===
+                    "COD"; /* && deliveryMethod === 'Mr. Speedy' */
+
+                  if (
+                    chargeToTopUp &&
+                    (storeDetails.creditThresholdReached ||
+                      credits < creditThreshold)
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} is currently not available for COD. Please try again later.`
                     );
                   }
 
@@ -287,9 +308,6 @@ exports.placeOrderTest = functions
                   let quantity = 0;
                   let subTotal = 0;
 
-                  const orderItems = storeCartItems[storeId];
-                  const deliveryMethod = storeSelectedDeliveryMethod[storeId];
-                  const paymentMethod = storeSelectedPaymentMethod[storeId];
                   const userEmail =
                     paymentMethod !== "COD"
                       ? storeUserEmail[storeId]
@@ -478,4 +496,3 @@ exports.placeOrderTest = functions
       return { s: 400, m: `${e}` };
     }
   });
-*/
