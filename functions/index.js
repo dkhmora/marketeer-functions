@@ -49,7 +49,7 @@ const {
   executePayoutTest,
 } = require("./payments_test");
 const { returnOrderPayments } = require("./miscellaneous");
-const { createPdf } = require("./pdf_services");
+const { createPdf, testMerchants } = require("./pdf_services");
 const { isPointInBoundingBox } = require("./helpers/location");
 
 firebase.initializeApp({
@@ -77,6 +77,7 @@ exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
 
 // Test
 app.post("/createPdf", createPdf);
+app.post("/testMerchants", testMerchants);
 
 // API
 exports.api = functions.region("asia-northeast1").https.onRequest(app);
@@ -132,8 +133,9 @@ exports.placeOrderTest = functions
 
     const userId = context.auth.uid;
     const userPhoneNumber = context.auth.token.phone_number;
+    const role = context.auth.token.role;
 
-    if (!userId || !userPhoneNumber) {
+    if (!userId || !userPhoneNumber || !role || role !== "marketeer-admin") {
       return { s: 400, m: "Error: User is not authorized" };
     }
 

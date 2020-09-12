@@ -22,10 +22,6 @@ service firebase.storage {
       return 'admin' in request.auth.token.storeIds[storeId];
     }
 
-    match /{allPaths=**} {
-      allow read: if true;
-    }
-
     match /images/merchants/{merchantId}/{allPaths=**} {
       allow write: if userIsMerchantAdmin(merchantId);
       allow read: if userIsAuthenticated();

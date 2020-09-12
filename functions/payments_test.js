@@ -340,22 +340,34 @@ exports.checkPaymentTest = async (req, res) => {
           const storeDoc = db.collection("stores").doc(storeId);
           const { paymentGatewayFee } = payment_methods_test[processId];
           const orderDoc = db.collection("orders").doc(txnid);
-          const weekStart = moment(timeStamp, "x")
+          let weekStart = moment(timeStamp, "x")
             .tz("Etc/GMT+8")
             .subtract(1, "weeks")
             .weekday(6)
             .startOf("day")
             .format("MMDDYYYY");
-          const weekEnd = moment(timeStamp, "x")
+          let weekEnd = moment(timeStamp, "x")
             .tz("Etc/GMT+8")
             .weekday(5)
             .endOf("day")
             .format("MMDDYYYY");
+
+          if (timeStamp > moment(weekEnd, "MMDDYYYY").format("x")) {
+            weekStart = moment(weekStart, "MMDDYYYY")
+              .add(1, "weeks")
+              .format("MMDDYYYY");
+
+            weekEnd = moment(weekEnd, "MMDDYYYY")
+              .add(1, "weeks")
+              .format("MMDDYYYY");
+          }
+
+          const period = `${weekStart}-${weekEnd}`;
           const merchantInvoiceDoc = db
             .collection("merchants")
             .doc(merchantId)
             .collection("disbursement_periods")
-            .doc(`${weekStart}-${weekEnd}`);
+            .doc(period);
 
           await orderDoc
             .set(
@@ -407,8 +419,8 @@ exports.checkPaymentTest = async (req, res) => {
               fcmTokens.map((token) => {
                 orderNotifications.push({
                   notification: {
-                    title: `Order #${txnid} has been Paid!`,
-                    body: `Order #${txnid} is now paid for. You may now process the order.`,
+                    title: `Congrats! You may now process Order ID: ${txnid}!`,
+                    body: `Order ID: ${txnid} is now paid for. Please process the order immediately when possible in order to avoid user dissatisfaction.`,
                   },
                   data: {
                     type: "order_update",
@@ -429,21 +441,47 @@ exports.checkPaymentTest = async (req, res) => {
         if (param1 === "order_payment") {
           const orderDoc = db.collection("orders").doc(txnid);
 
-          await orderDoc.set(
-            {
-              orderStatus: {
-                unpaid: {
-                  status: false,
+          await orderDoc
+            .set(
+              {
+                orderStatus: {
+                  unpaid: {
+                    status: false,
+                  },
+                  cancelled: {
+                    status: true,
+                    reason: "Online Payment failure",
+                    updatedAt: timeStamp,
+                  },
                 },
-                cancelled: {
-                  status: true,
-                  updatedAt: timeStamp,
-                },
+                updatedAt: timeStamp,
               },
-              updatedAt: timeStamp,
-            },
-            { merge: true }
-          );
+              { merge: true }
+            )
+            .then(async () => {
+              const storeDoc = db.collection("stores").doc(storeId);
+              const storeData = (await storeDoc.get()).data();
+              const fcmTokens = storeData.fcmTokens ? storeData.fcmTokens : [];
+              const orderNotifications = [];
+
+              fcmTokens.map((token) => {
+                orderNotifications.push({
+                  notification: {
+                    title: `Sorry, an order has been cancelled!`,
+                    body: `Order ID: ${txnid} has been cancelled due to failed Online Payment.`,
+                  },
+                  data: {
+                    type: "order_update",
+                    txnid,
+                  },
+                  token,
+                });
+              });
+
+              return orderNotifications.length > 0 && fcmTokens.length > 0
+                ? await admin.messaging().sendAll(orderNotifications)
+                : null;
+            });
         }
       }
 

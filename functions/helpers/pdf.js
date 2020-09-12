@@ -37,6 +37,8 @@ require("moment-timezone");
 const PdfPrinter = require("pdfmake");
 const printer = new PdfPrinter(fonts);
 const disbursementDD = require("../pdf_templates/disbursement");
+const { functions } = require("firebase");
+const { notifyUserOfOrderConfirmation } = require("./email");
 
 const formatTableItem = (text) => {
   return {
@@ -105,9 +107,11 @@ const formattedOrders = ({ orders, stores, transactionFeePercentage }) => {
 
 exports.createDisbursementInvoicePdf = ({
   fileName,
+  filePath,
   invoiceNumber,
   invoiceStatus,
   userName,
+  userEmail,
   companyName,
   companyAddress,
   dateIssued,
@@ -120,7 +124,7 @@ exports.createDisbursementInvoicePdf = ({
   totalAmount,
 }) => {
   return new Promise((resolve, reject) => {
-    const myPdfFile = admin.storage().bucket().file(`${fileName}.pdf`);
+    const fileRef = admin.storage().bucket().file(`${filePath}/${fileName}`);
 
     const pdfDoc = printer.createPdfKitDocument(
       disbursementDD({
@@ -142,9 +146,25 @@ exports.createDisbursementInvoicePdf = ({
         totalAmount,
       })
     );
-    pdfDoc.pipe(myPdfFile.createWriteStream());
+    const fileStream = fileRef.createWriteStream();
+
+    pdfDoc.pipe(fileStream);
     pdfDoc.end();
 
-    resolve();
+    fileStream.on("finish", () => {
+      resolve(
+        notifyUserOfOrderConfirmation({
+          filePath,
+          fileName,
+          userEmail,
+          userName,
+          dateIssued,
+        })
+      );
+    });
+
+    fileStream.on("error", (err) => {
+      reject(err);
+    });
   });
 };

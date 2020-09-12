@@ -5,124 +5,287 @@ const functions = require("firebase-functions");
 const { createDisbursementInvoicePdf } = require("./helpers/pdf");
 require("moment-timezone");
 
-exports.createPdf = async (req, res) => {
-  const { merchantId } = req.body;
+exports.sendDisbursementInvoicePdfs = functions
+  .region("asia-northeast1")
+  .pubsub.schedule("0 0 0 0 6")
+  .onRun(async (context) => {
+    const timeStamp = firestore.Timestamp.now().toMillis();
+    const now = moment(timeStamp, "x");
+    let weekStart = moment(timeStamp, "x")
+      .tz("Etc/GMT+8")
+      .subtract(1, "weeks")
+      .weekday(6)
+      .startOf("day")
+      .format("x");
+    let weekEnd = moment(timeStamp, "x")
+      .tz("Etc/GMT+8")
+      .weekday(5)
+      .endOf("day")
+      .format("x");
 
-  const timeStamp = firestore.Timestamp.now().toMillis();
+    if (timeStamp > weekEnd) {
+      weekStart = moment(weekStart, "x").add(1, "weeks").format("x");
+      weekEnd = moment(weekEnd, "x").add(1, "weeks").format("x");
+    }
 
-  const now = moment(timeStamp, "x");
+    const weekStartFormatted = moment(weekStart, "x")
+      .weekday(6)
+      .startOf("day")
+      .format("MMDDYYYY");
+    const weekEndFormatted = moment(weekEnd, "x")
+      .weekday(5)
+      .endOf("day")
+      .format("MMDDYYYY");
 
-  const weekStart = moment(timeStamp, "x")
-    .tz("Etc/GMT+8")
-    .subtract(1, "weeks")
-    .weekday(6)
-    .startOf("day")
-    .format("x");
-  const weekEnd = moment(timeStamp, "x")
-    .tz("Etc/GMT+8")
-    .weekday(5)
-    .endOf("day")
-    .format("x");
-  const weekStartFormatted = moment(timeStamp, "x")
-    .tz("Etc/GMT+8")
-    .subtract(1, "weeks")
-    .weekday(6)
-    .startOf("day")
-    .format("MMDDYYYY");
-  const weekEndFormatted = moment(timeStamp, "x")
-    .tz("Etc/GMT+8")
-    .weekday(5)
-    .endOf("day")
-    .format("MMDDYYYY");
-
-  functions.logger.log(
-    weekStart,
-    weekStartFormatted,
-    weekEnd,
-    weekEndFormatted,
-    `${weekStartFormatted}-${weekEndFormatted}`
-  );
-
-  const merchantData = (
-    await db.collection("merchants").doc(merchantId).get()
-  ).data();
-  const latestDisbursementData = (
-    await db
+    return await db
       .collection("merchants")
-      .doc(merchantId)
-      .collection("disbursement_periods")
-      .doc(`${weekStartFormatted}-${weekEndFormatted}`)
+      .where("generateInvoice", "==", true)
       .get()
-  ).data();
-  functions.logger.log(merchantData, latestDisbursementData);
+      .then(async (querySnapshot) => {
+        const merchantIds = [];
 
-  const { creditData, user, company, stores } = merchantData;
-  const {
-    totalAmount,
-    totalPaymentGatewayFees,
-    successfulTransactionCount,
-  } = latestDisbursementData;
-  const { transactionFeePercentage } = creditData;
-  const { companyName, companyAddress } = company;
-  const { userName } = user;
-  const companyInitials = companyName
-    .split(" ")
-    .map((i) => i.charAt(0).toUpperCase())
-    .join("");
+        await querySnapshot.docs.forEach((document, index) => {
+          merchantIds.push(document.id);
+        });
 
-  const invoiceNumber = `${companyInitials}-${merchantId.slice(
-    -7
-  )}-${weekStartFormatted}${weekEndFormatted}-DI`;
-  const invoiceStatus = "PROCESSING PAYMENT";
-  const dateIssued = now.clone().tz("Etc/GMT+8").format("MMMM DD, YYYY");
+        return merchantIds;
+      })
+      .then((merchantIds) => {
+        return merchantIds.map(async (merchantId) => {
+          const merchantData = (
+            await db.collection("merchants").doc(merchantId).get()
+          ).data();
+          const latestDisbursementData = (
+            await db
+              .collection("merchants")
+              .doc(merchantId)
+              .collection("disbursement_periods")
+              .doc(`${weekStartFormatted}-${weekEndFormatted}`)
+              .get()
+          ).data();
+          functions.logger.log(merchantData, latestDisbursementData);
 
-  const totalRevenueShare = totalAmount * transactionFeePercentage * 0.01;
-  const totalAmountPayable =
-    totalAmount - totalPaymentGatewayFees - totalRevenueShare;
-  const fileName = `${companyName} - ${invoiceNumber}`;
+          const { creditData, user, company, stores } = merchantData;
+          const {
+            totalAmount,
+            totalPaymentGatewayFees,
+            successfulTransactionCount,
+          } = latestDisbursementData;
+          const { transactionFeePercentage } = creditData;
+          const { companyName, companyAddress } = company;
+          const { userName } = user;
+          const companyInitials = companyName
+            .split(" ")
+            .map((i) => i.charAt(0).toUpperCase())
+            .join("");
+
+          const invoiceNumber = `${companyInitials}-${merchantId.slice(
+            -7
+          )}-${weekStartFormatted}${weekEndFormatted}-DI`;
+          const invoiceStatus = "PROCESSING PAYMENT";
+          const dateIssued = now
+            .clone()
+            .tz("Etc/GMT+8")
+            .format("MMMM DD, YYYY");
+
+          const totalRevenueShare =
+            totalAmount * transactionFeePercentage * 0.01;
+          const totalAmountPayable =
+            totalAmount - totalPaymentGatewayFees - totalRevenueShare;
+          const fileName = `${companyName} - ${invoiceNumber}.pdf`;
+          const filePath = `merchants/${merchantId}/disbursement_invoices/${fileName}`;
+
+          // eslint-disable-next-line promise/no-nesting
+          return await db
+            .collection("order_payments")
+            .where("merchantId", "==", merchantId)
+            .where("status", "==", "S")
+            .where("updatedAt", ">=", Number(weekStart))
+            .orderBy("updatedAt", "desc")
+            .startAfter(Number(weekEnd))
+            .get()
+            .then(async (querySnapshot) => {
+              const orders = [];
+
+              await querySnapshot.docs.forEach((documentSnapshot, index) => {
+                const orderPayment = {
+                  ...documentSnapshot.data(),
+                  orderId: documentSnapshot.id,
+                };
+
+                if (orderPayment.updatedAt <= weekEnd) {
+                  orders.push(orderPayment);
+                }
+              });
+
+              return orders.sort((a, b) => a.updatedAt - b.updatedAt);
+            })
+            .then(async (orders) => {
+              return await createDisbursementInvoicePdf({
+                filePath,
+                invoiceNumber,
+                invoiceStatus,
+                userName,
+                companyName,
+                companyAddress,
+                dateIssued,
+                orders,
+                stores,
+                transactionFeePercentage,
+                totalAmountPayable,
+                totalRevenueShare,
+                totalPaymentProcessorFee: totalPaymentGatewayFees,
+                totalAmount,
+              });
+            });
+        });
+      });
+  });
+
+exports.createPdf = async (req, res) => {
+  const timeStamp = firestore.Timestamp.now().toMillis();
+  const now = moment(timeStamp, "x");
+  let weekStart = moment(timeStamp, "x")
+    .tz("Etc/GMT+8")
+    .subtract(1, "weeks")
+    .weekday(6)
+    .startOf("day")
+    .format("x");
+  let weekEnd = moment(timeStamp, "x")
+    .tz("Etc/GMT+8")
+    .weekday(5)
+    .endOf("day")
+    .format("x");
+
+  if (timeStamp > weekEnd) {
+    weekStart = moment(weekStart, "x").add(1, "weeks").format("x");
+    weekEnd = moment(weekEnd, "x").add(1, "weeks").format("x");
+  }
+
+  const weekStartFormatted = moment(weekStart, "x")
+    .weekday(6)
+    .startOf("day")
+    .format("MMDDYYYY");
+  const weekEndFormatted = moment(weekEnd, "x")
+    .weekday(5)
+    .endOf("day")
+    .format("MMDDYYYY");
 
   return await db
-    .collection("order_payments")
-    .where("merchantId", "==", merchantId)
-    .where("status", "==", "S")
-    .where("updatedAt", ">=", Number(weekStart))
-    .orderBy("updatedAt", "desc")
-    .startAfter(Number(weekEnd))
+    .collection("merchants")
+    .where("generateInvoice", "==", true)
     .get()
     .then(async (querySnapshot) => {
-      const orders = [];
+      const merchantIds = [];
 
-      await querySnapshot.docs.forEach((documentSnapshot, index) => {
-        const orderPayment = {
-          ...documentSnapshot.data(),
-          orderId: documentSnapshot.id,
-        };
-
-        if (orderPayment.updatedAt <= weekEnd) {
-          orders.push(orderPayment);
-        }
+      await querySnapshot.docs.forEach((document, index) => {
+        merchantIds.push(document.id);
       });
 
-      return orders.sort((a, b) => a.updatedAt - b.updatedAt);
+      return merchantIds;
     })
-    .then(async (orders) => {
-      await createDisbursementInvoicePdf({
-        fileName,
-        invoiceNumber,
-        invoiceStatus,
-        userName,
-        companyName,
-        companyAddress,
-        dateIssued,
-        orders,
-        stores,
-        transactionFeePercentage,
-        totalAmountPayable,
-        totalRevenueShare,
-        totalPaymentProcessorFee: totalPaymentGatewayFees,
-        totalAmount,
+    .then((merchantIds) => {
+      return merchantIds.map(async (merchantId) => {
+        const merchantData = (
+          await db.collection("merchants").doc(merchantId).get()
+        ).data();
+        const latestDisbursementData = (
+          await db
+            .collection("merchants")
+            .doc(merchantId)
+            .collection("disbursement_periods")
+            .doc(`${weekStartFormatted}-${weekEndFormatted}`)
+            .get()
+        ).data();
+        functions.logger.log(merchantData, latestDisbursementData);
+
+        const { creditData, user, company, stores } = merchantData;
+        const {
+          totalAmount,
+          totalPaymentGatewayFees,
+          successfulTransactionCount,
+        } = latestDisbursementData;
+        const { transactionFeePercentage } = creditData;
+        const { companyName, companyAddress } = company;
+        const { userName, userEmail } = user;
+        const companyInitials = companyName
+          .split(" ")
+          .map((i) => i.charAt(0).toUpperCase())
+          .join("");
+
+        const invoiceNumber = `${companyInitials}-${merchantId.slice(
+          -7
+        )}-${weekStartFormatted}${weekEndFormatted}-DI`;
+        const invoiceStatus = "PROCESSING PAYMENT";
+        const dateIssued = now.clone().tz("Etc/GMT+8").format("MMMM DD, YYYY");
+
+        const totalRevenueShare = totalAmount * transactionFeePercentage * 0.01;
+        const totalAmountPayable =
+          totalAmount - totalPaymentGatewayFees - totalRevenueShare;
+        const fileName = `${companyName} - ${invoiceNumber}.pdf`;
+        const filePath = `merchants/${merchantId}/disbursement_invoices/`;
+
+        // eslint-disable-next-line promise/no-nesting
+        return await db
+          .collection("order_payments")
+          .where("merchantId", "==", merchantId)
+          .where("status", "==", "S")
+          .where("updatedAt", ">=", Number(weekStart))
+          .orderBy("updatedAt", "desc")
+          .startAfter(Number(weekEnd))
+          .get()
+          .then(async (querySnapshot) => {
+            const orders = [];
+
+            await querySnapshot.docs.forEach((documentSnapshot, index) => {
+              const orderPayment = {
+                ...documentSnapshot.data(),
+                orderId: documentSnapshot.id,
+              };
+
+              if (orderPayment.updatedAt <= weekEnd) {
+                orders.push(orderPayment);
+              }
+            });
+
+            return orders.sort((a, b) => a.updatedAt - b.updatedAt);
+          })
+          .then(async (orders) => {
+            return await createDisbursementInvoicePdf({
+              fileName,
+              filePath,
+              invoiceNumber,
+              invoiceStatus,
+              userName,
+              userEmail,
+              companyName,
+              companyAddress,
+              dateIssued,
+              orders,
+              stores,
+              transactionFeePercentage,
+              totalAmountPayable,
+              totalRevenueShare,
+              totalPaymentProcessorFee: totalPaymentGatewayFees,
+              totalAmount,
+            });
+          });
+      });
+    });
+};
+
+exports.testMerchants = async (req, res) => {
+  return await db
+    .collection("merchants")
+    .where("generateInvoice", "==", true)
+    .get()
+    .then(async (querySnapshot) => {
+      const merchantIds = [];
+
+      await querySnapshot.docs.forEach((document, index) => {
+        merchantIds.push(document.id);
       });
 
-      return res.status(200).json({ orders });
+      return res.status(200).json({ merchantIds });
     });
 };
