@@ -31,7 +31,7 @@ exports.signInWithPhoneAndPassword = functions
 exports.sendPasswordResetLinkToStoreUser = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { email, storeId } = data;
+    const { email } = data;
 
     try {
       if (email === undefined) {
@@ -41,13 +41,16 @@ exports.sendPasswordResetLinkToStoreUser = functions
       const user = await admin.auth().getUserByEmail(email);
 
       if (!user) {
-        return { s: 400, m: "Bad argument: Email could not be found" };
-      }
-
-      if (!user.customClaims.storeIds) {
         return {
           s: 400,
-          m: "Bad argument: Email is not assigned to any store",
+          m: `Sorry, the email ${email} is not assigned to any user`,
+        };
+      }
+
+      if (!user.customClaims.storeIds || !user.customClaims.role) {
+        return {
+          s: 400,
+          m: `Sorry, the email ${email} is not authorized for this application`,
         };
       }
 
