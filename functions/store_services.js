@@ -61,6 +61,8 @@ exports.changeOrderStatus = functions
             } = orderData;
             const { stores, creditData } = merchantData;
             const { credits, creditThreshold } = creditData;
+            const chargeToTopUp =
+              paymentMethod === "COD"; /* && deliveryMethod === 'Mr. Speedy' */
 
             const userStoreRoles = storeIds[storeId];
 
@@ -142,7 +144,7 @@ exports.changeOrderStatus = functions
                 ...orderUpdateData,
               });
 
-              if (nextStatus === "shipped") {
+              if (nextStatus === "shipped" && chargeToTopUp) {
                 const newCredits = credits - transactionFee;
 
                 transaction.update(merchantRef, {
