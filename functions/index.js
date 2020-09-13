@@ -20,6 +20,7 @@ const {
   cancelOrder,
   addReview,
   sendMessageNotification,
+  createAccountDocument,
 } = require("./user_services");
 const {
   changeOrderStatus,
@@ -110,6 +111,7 @@ exports.placeOrder = placeOrder;
 exports.cancelOrder = cancelOrder;
 exports.addReview = addReview;
 exports.sendMessageNotification = sendMessageNotification;
+exports.createAccountDocument = createAccountDocument;
 
 // Testing
 exports.changeOrderStatusTest = changeOrderStatusTest;

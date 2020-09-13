@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
-const { firestore } = require("firebase-admin");
+const firebase = require("firebase");
+const { firestore, auth } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 const { HERE_API_KEY } = require("./util/config");
 
@@ -724,4 +725,35 @@ exports.sendMessageNotification = functions
         ? await admin.messaging().sendAll(messageNotifications)
         : null;
     }
+  });
+
+exports.createAccountDocument = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { birthdate, gender } = data;
+    const { uid } = context.auth.token;
+
+    if (!uid) {
+      return { s: 500, m: "Error: User is not authorized" };
+    }
+
+    const timestamp = firebase.firestore.Timestamp.now().toMillis();
+    const user = auth().getUser(uid);
+    const { displayName, email, phoneNumber } = user;
+
+    await firestore()
+      .collection("users")
+      .doc(uid)
+      .set({
+        name: displayName,
+        email,
+        phoneNumber: phoneNumber,
+        birthdate,
+        gender,
+        updatedAt: timestamp,
+        createdAt: timestamp,
+      })
+      .then(() => {
+        return { s: 200, m: "User documents successfully created!" };
+      });
   });

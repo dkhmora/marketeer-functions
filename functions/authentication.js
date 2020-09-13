@@ -35,7 +35,7 @@ exports.sendPasswordResetLinkToStoreUser = functions
 
     try {
       if (email === undefined) {
-        return { s: 400, m: "Bad argument: no phone number" };
+        return { s: 400, m: "Bad argument: No email provided" };
       }
 
       const user = await admin.auth().getUserByEmail(email);
@@ -47,7 +47,7 @@ exports.sendPasswordResetLinkToStoreUser = functions
         };
       }
 
-      if (!user.customClaims.storeIds || !user.customClaims.role) {
+      if (!user.customClaims.storeIds && !user.customClaims.role) {
         return {
           s: 400,
           m: `Sorry, the email ${email} is not authorized for this application`,
