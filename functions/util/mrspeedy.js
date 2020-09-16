@@ -26,52 +26,59 @@ const getOrderPriceEstimate = functions
 
     functions.logger.log(cartStoreIds, deliveryLocation, deliveryAddress);
 
-    /*
-    const deliveryFees = await Promise.all(
-      cartStoreIds.map(async (storeId) => {
-        const { storeLocation, address } = (
-          await db.collection("stores").doc(storeId).get()
-        ).data();
+    let storeDeliveryFees = {};
 
-        return fetch(
-          "https://robotapitest.mrspeedy.ph/api/business/1.1/calculate-order",
-          {
-            method: "post",
-            body: JSON.stringify({
-              matter: "Documents",
-              points: [
-                {
-                  address: "ABC",
-                  latitude: "14.6737037",
-                  longitude: "121.0911911",
+    try {
+      return await Promise.all(
+        cartStoreIds.map(async (storeId) => {
+          const { storeLocation, address, deliveryMethods } = (
+            await db.collection("stores").doc(storeId).get()
+          ).data();
+
+          if (deliveryMethods.includes("Mr. Speedy")) {
+            return fetch(
+              "https://robotapitest.mrspeedy.ph/api/business/1.1/calculate-order",
+              {
+                method: "post",
+                body: JSON.stringify({
+                  matter: "Documents",
+                  points: [
+                    {
+                      address,
+                      ...storeLocation,
+                    },
+                    {
+                      address: deliveryAddress,
+                      ...deliveryLocation,
+                    },
+                  ],
+                }),
+                headers: {
+                  "X-DV-Auth-Token": await getMrSpeedySecretKey(),
                 },
-                {
-                  address: "DEF",
-                  latitude: "14.5528233",
-                  longitude: "121.0519364",
-                },
-              ],
-            }),
-            headers: {
-              "X-DV-Auth-Token": await getMrSpeedySecretKey(),
-            },
+              }
+            )
+              .then((res) => {
+                return res.json();
+              })
+              .then((json) => {
+                storeDeliveryFees[storeId] = json.order.delivery_fee_amount;
+
+                return;
+              });
           }
-        )
-          .then((res) => {
-            functions.logger.log(res.json());
-            return res.json();
-          })
-          .then((json) => {
-            functions.logger.log(json);
-            return json.order.deliveryFeeAmount;
-          })
-          .catch((err) => {
-            return err;
-          });
-      })
-    );
-    */
 
+          return null;
+        })
+      ).then(() => {
+        return { s: 200, m: "Success", d: storeDeliveryFees };
+      });
+    } catch (e) {
+      functions.logger.error(e);
+      return { s: 500, m: "Error: Something went wrong" };
+    }
+
+    /*
     const deliveryFees = async () => {
       return await fetch(
         "https://robotapitest.mrspeedy.ph/api/business/1.1/calculate-order",
@@ -98,21 +105,16 @@ const getOrderPriceEstimate = functions
         }
       )
         .then((res) => {
-          functions.logger.log(res);
           return res.json();
         })
         .then((json) => {
-          functions.logger.log(json);
           return json;
         })
         .catch((err) => {
           return err;
         });
     };
-
-    functions.logger.log(deliveryFees());
-
-    return { s: 200, m: "Success", d: await deliveryFees() };
+    */
   });
 
 module.exports = {
