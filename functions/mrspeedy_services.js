@@ -1,6 +1,6 @@
 const { getOrderPriceEstimate } = require("./util/mrspeedy");
 const functions = require("firebase-functions");
-const { db } = require("./admin");
+const { db } = require("./util/admin");
 
 exports.getMrSpeedyDeliveryPriceEstimate = functions
   .region("asia-northeast1")
