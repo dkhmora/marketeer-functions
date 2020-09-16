@@ -52,10 +52,7 @@ const {
 const { returnOrderPayments } = require("./miscellaneous");
 const { createPdf, testMerchants } = require("./pdf_services");
 const { isPointInBoundingBox } = require("./helpers/location");
-const {
-  getMrSpeedySecretKey,
-  getOrderPriceEstimate,
-} = require("./util/mrspeedy");
+const { getMrSpeedyDeliveryPriceEstimate } = require("./mrspeedy_services");
 
 firebase.initializeApp({
   ...FB_CONFIG,
@@ -118,7 +115,7 @@ exports.sendMessageNotification = sendMessageNotification;
 exports.createAccountDocument = createAccountDocument;
 
 // Mr. Speedy
-exports.getOrderPriceEstimate = getOrderPriceEstimate;
+exports.getMrSpeedyDeliveryPriceEstimate = getMrSpeedyDeliveryPriceEstimate;
 
 // Testing
 exports.changeOrderStatusTest = changeOrderStatusTest;

@@ -14,110 +14,81 @@ const getMrSpeedySecretKey = async () => {
   return secretKey;
 };
 
-const getOrderPriceEstimate = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
-    const { deliveryLocation, deliveryAddress } = data;
-    const { uid } = context.auth;
-
-    const cartStoreIds = Object.keys(
-      (await db.collection("user_carts").doc(uid).get()).data()
-    );
-
-    functions.logger.log(cartStoreIds, deliveryLocation, deliveryAddress);
-
-    let storeDeliveryFees = {};
-
-    try {
-      return await Promise.all(
-        cartStoreIds.map(async (storeId) => {
-          const { storeLocation, address, deliveryMethods } = (
-            await db.collection("stores").doc(storeId).get()
-          ).data();
-
-          if (deliveryMethods.includes("Mr. Speedy")) {
-            return fetch(
-              "https://robotapitest.mrspeedy.ph/api/business/1.1/calculate-order",
-              {
-                method: "post",
-                body: JSON.stringify({
-                  matter: "Documents",
-                  points: [
-                    {
-                      address,
-                      ...storeLocation,
-                    },
-                    {
-                      address: deliveryAddress,
-                      ...deliveryLocation,
-                    },
-                  ],
-                }),
-                headers: {
-                  "X-DV-Auth-Token": await getMrSpeedySecretKey(),
-                },
-              }
-            )
-              .then((res) => {
-                return res.json();
-              })
-              .then((json) => {
-                storeDeliveryFees[storeId] = json.order.delivery_fee_amount;
-
-                return;
-              });
-          }
-
-          return null;
-        })
-      ).then(() => {
-        return { s: 200, m: "Success", d: storeDeliveryFees };
-      });
-    } catch (e) {
-      functions.logger.error(e);
-      return { s: 500, m: "Error: Something went wrong" };
+const getOrderPriceEstimate = async ({ points }) => {
+  return fetch(
+    "https://robotapitest.mrspeedy.ph/api/business/1.1/calculate-order",
+    {
+      method: "post",
+      body: JSON.stringify({
+        matter: "Order price estimation",
+        points,
+      }),
+      headers: {
+        "X-DV-Auth-Token": await getMrSpeedySecretKey(),
+      },
     }
+  )
+    .then((res) => {
+      return res.json();
+    })
+    .then((json) => {
+      return json.order.delivery_fee_amount;
+    });
+};
 
-    /*
-    const deliveryFees = async () => {
-      return await fetch(
-        "https://robotapitest.mrspeedy.ph/api/business/1.1/calculate-order",
-        {
-          method: "post",
-          body: JSON.stringify({
-            matter: "Documents",
-            points: [
-              {
-                address: "ABC",
-                latitude: "14.6737037",
-                longitude: "121.0911911",
-              },
-              {
-                address: "DEF",
-                latitude: "14.5528233",
-                longitude: "121.0519364",
-              },
-            ],
-          }),
-          headers: {
-            "X-DV-Auth-Token": await getMrSpeedySecretKey(),
-          },
-        }
-      )
-        .then((res) => {
-          return res.json();
-        })
-        .then((json) => {
-          return json;
-        })
-        .catch((err) => {
-          return err;
-        });
-    };
-    */
+const placeMrSpeedyOrder = async ({ points }) => {
+  return fetch(
+    "https://robotapitest.mrspeedy.ph/api/business/1.1/create-order",
+    {
+      method: "post",
+      body: JSON.stringify({
+        matter: "Documents",
+        points,
+      }),
+      headers: {
+        "X-DV-Auth-Token": await getMrSpeedySecretKey(),
+      },
+    }
+  ).then((res) => {
+    return res.json();
   });
+};
+
+const cancelMrSpeedyOrder = async ({ orderId }) => {
+  return fetch(
+    "https://robotapitest.mrspeedy.ph/api/business/1.1/cancel-order",
+    {
+      method: "post",
+      body: JSON.stringify({
+        order_id: orderId,
+      }),
+      headers: {
+        "X-DV-Auth-Token": await getMrSpeedySecretKey(),
+      },
+    }
+  ).then((res) => {
+    return res.json();
+  });
+};
+
+const getMrSpeedyCourierInfo = async ({ orderId }) => {
+  return fetch("https://robotapitest.mrspeedy.ph/api/business/1.1/courier", {
+    method: "get",
+    body: JSON.stringify({
+      order_id: orderId,
+    }),
+    headers: {
+      "X-DV-Auth-Token": await getMrSpeedySecretKey(),
+    },
+  }).then((res) => {
+    return res.json();
+  });
+};
 
 module.exports = {
   getMrSpeedySecretKey,
   getOrderPriceEstimate,
+  placeMrSpeedyOrder,
+  cancelMrSpeedyOrder,
+  getMrSpeedyCourierInfo,
 };
