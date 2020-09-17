@@ -22,6 +22,10 @@ service firebase.storage {
       return 'admin' in request.auth.token.storeIds[storeId];
     }
 
+    function userIsMarketeerAdmin() {
+      return request.auth.token.role == 'marketeer-admin';
+    }
+
     match /images/merchants/{merchantId}/{allPaths=**} {
       allow write: if userIsMerchantAdmin(merchantId);
       allow read: if userIsAuthenticated();
@@ -31,11 +35,13 @@ service firebase.storage {
       allow write: if userIsStoreAdmin(storeId) || userIsAssignedStoreRole(storeId, 'manager')
       || userIsAssignedStoreRole(storeId, 'inventory_manager');
       allow read: if userIsAuthenticated();
+      allow write: if userIsMarketeerAdmin();
     }
 
     match /images/stores/{storeId}/{fileName} {
       allow write: if userIsStoreAdmin(storeId) || userIsAssignedStoreRole(storeId, 'manager');
       allow read: if userIsAuthenticated();
+      allow write: if userIsMarketeerAdmin();
     }
 
     match /images/orders/{orderId}/order_chat/{fileName} {

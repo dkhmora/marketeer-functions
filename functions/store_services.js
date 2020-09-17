@@ -295,7 +295,7 @@ exports.changeOrderStatus = functions
 exports.addStoreItem = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { item, storeId, timeStamp } = data;
+    const { item, storeId } = data;
     const storeIds = context.auth.token.storeIds;
 
     if (!item || !storeId) {

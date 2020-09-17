@@ -1,5 +1,20 @@
 const nodemailer = require("nodemailer");
 const { admin } = require("../util/admin");
+const ejs = require("ejs");
+const path = require("path");
+const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
+const functions = require("firebase-functions");
+const client = new SecretManagerServiceClient();
+
+const getBusinessEmailKey = async () => {
+  const [accessResponse] = await client.accessSecretVersion({
+    name:
+      "projects/1549607298/secrets/marketeer_business_email_pass/versions/latest",
+  });
+  const secretKey = accessResponse.payload.data.toString("utf8");
+
+  return secretKey;
+};
 
 exports.notifyUserOfOrderConfirmation = async ({
   fileName,
@@ -21,29 +36,41 @@ exports.notifyUserOfOrderConfirmation = async ({
     port: 465,
     debug: true,
     auth: {
-      user: "**********",
-      pass: "**********",
+      user: "business@marketeer.ph",
+      pass: await getBusinessEmailKey(),
     },
   };
 
   const transporter = nodemailer.createTransport(mailerConfig);
 
-  const mailOptions = {
-    from: mailerConfig.auth.user,
-    to: userEmail,
-  };
-
-  mailOptions.subject = `Disbursement Invoice for ${dateIssued}`;
-  mailOptions.text = `Hello ${userName}! Attached is your Disbursement Invoice for ${dateIssued}.`;
-
-  mailOptions.attachments = [
+  ejs.renderFile(
+    path.join(__dirname, "../email_templates/disbursement.ejs"),
     {
-      filename: fileName,
-      content: file.createReadStream(),
+      user_name: userName,
     },
-  ];
+    (err, data) => {
+      if (err) {
+        functions.logger.log(err);
+      } else {
+        const mailOptions = {
+          from: mailerConfig.auth.user,
+          to: userEmail,
+          subject: `Disbursement Invoice for ${dateIssued}`,
+          html: data,
+          attachments: [
+            {
+              filename: fileName,
+              content: file.createReadStream(),
+            },
+          ],
+        };
 
-  await transporter.sendMail(mailOptions);
+        transporter.sendMail(mailOptions);
 
-  return console.log("New welcome email sent to:", userEmail);
+        transporter.close();
+      }
+    }
+  );
+
+  return console.log("Disbursement email sent to:", userEmail);
 };

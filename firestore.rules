@@ -68,6 +68,7 @@ service cloud.firestore {
 
     match /stores/{storeId}/items/{itemPageIds} {
       allow read, write: if userIsStoreAdmin(storeId);
+      allow write: if userIsMarketeerAdmin();
       allow read: if userIsAuthenticated();
     }
 
