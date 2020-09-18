@@ -495,3 +495,7 @@ exports.result = async (req, res) => {
     }
   }
 };
+
+exports.checkPayout = async (req, res) => {
+  return functions.logger.log(req, res);
+};

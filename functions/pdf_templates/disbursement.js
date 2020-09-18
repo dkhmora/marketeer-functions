@@ -11,6 +11,7 @@ const dd = ({
   transactionFeePercentage,
   totalPaymentProcessorFee,
   totalAmount,
+  successfulTransactionCount,
 }) => {
   return {
     pageOrientation: "landscape",
@@ -66,6 +67,26 @@ const dd = ({
                     },
                     {
                       text: dateIssued,
+                      bold: true,
+                      color: "#333333",
+                      fontSize: 12,
+                      alignment: "right",
+                      width: 100,
+                    },
+                  ],
+                },
+                {
+                  columns: [
+                    {
+                      text: "Transaction Count",
+                      color: "#aaaaab",
+                      bold: true,
+                      width: "*",
+                      fontSize: 12,
+                      alignment: "right",
+                    },
+                    {
+                      text: successfulTransactionCount,
                       bold: true,
                       color: "#333333",
                       fontSize: 12,

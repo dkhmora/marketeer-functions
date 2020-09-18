@@ -38,6 +38,7 @@ const {
   setMarketeerAdminToken,
 } = require("./admin_services");
 const {
+  checkPayout,
   checkPayment,
   result,
   getMerchantTopUpPaymentLink,
@@ -50,7 +51,7 @@ const {
   executePayoutTest,
 } = require("./payments_test");
 const { returnOrderPayments } = require("./miscellaneous");
-const { createPdf, testMerchants } = require("./pdf_services");
+const { sendDisbursementInvoicePdfs } = require("./pdf_services");
 const { isPointInBoundingBox } = require("./helpers/location");
 const { getMrSpeedyDeliveryPriceEstimate } = require("./mrspeedy_services");
 
@@ -73,13 +74,12 @@ app.get("/payment/resultTest", resultTest);
 app.post("/payment/checkPayment", checkPayment);
 app.get("/payment/result", result);
 
+// Payout Postback/Callback URLs
+app.post("/payout/checkPayout", checkPayout);
+
 exports.getMerchantTopUpPaymentLink = getMerchantTopUpPaymentLink;
 exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
 // ** Dragonpay PRODUCTION **
-
-// Test
-app.post("/createPdf", createPdf);
-app.post("/testMerchants", testMerchants);
 
 // API
 exports.api = functions.region("asia-northeast1").https.onRequest(app);
@@ -100,6 +100,9 @@ exports.getUserFromUserId = getUserFromUserId;
 exports.createStoreEmployeeAccount = createStoreEmployeeAccount;
 exports.setMarketeerAdminToken = setMarketeerAdminToken;
 exports.editUserStoreRoles = editUserStoreRoles;
+
+// Merchant Services
+exports.sendDisbursementInvoicePdfs = sendDisbursementInvoicePdfs;
 
 // Store Services
 exports.changeOrderStatus = changeOrderStatus;

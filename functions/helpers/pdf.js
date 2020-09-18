@@ -122,6 +122,7 @@ exports.createDisbursementInvoicePdf = ({
   totalRevenueShare,
   totalPaymentProcessorFee,
   totalAmount,
+  successfulTransactionCount,
 }) => {
   return new Promise((resolve, reject) => {
     const fileRef = admin.storage().bucket().file(`${filePath}/${fileName}`);
@@ -144,6 +145,7 @@ exports.createDisbursementInvoicePdf = ({
         transactionFeePercentage,
         totalPaymentProcessorFee,
         totalAmount,
+        successfulTransactionCount,
       })
     );
     const fileStream = fileRef.createWriteStream();

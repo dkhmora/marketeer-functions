@@ -43,34 +43,48 @@ exports.notifyUserOfOrderConfirmation = async ({
 
   const transporter = nodemailer.createTransport(mailerConfig);
 
-  ejs.renderFile(
-    path.join(__dirname, "../email_templates/disbursement.ejs"),
-    {
-      user_name: userName,
-    },
-    (err, data) => {
-      if (err) {
-        functions.logger.log(err);
-      } else {
-        const mailOptions = {
-          from: mailerConfig.auth.user,
-          to: userEmail,
-          subject: `Disbursement Invoice for ${dateIssued}`,
-          html: data,
-          attachments: [
-            {
-              filename: fileName,
-              content: file.createReadStream(),
-            },
-          ],
-        };
+  transporter.verify((error, success) => {
+    if (error) {
+      functions.logger.log(error);
+    } else {
+      ejs.renderFile(
+        path.join(__dirname, "../email_templates/disbursement.ejs"),
+        {
+          user_name: userName,
+          date_issued: dateIssued,
+        },
+        (err, data) => {
+          if (err) {
+            functions.logger.error(err);
+          } else {
+            const mailOptions = {
+              from: mailerConfig.auth.user,
+              to: userEmail,
+              subject: `Disbursement Invoice for ${dateIssued}`,
+              html: data,
+              attachments: [
+                {
+                  filename: fileName,
+                  content: file.createReadStream(),
+                },
+              ],
+            };
 
-        transporter.sendMail(mailOptions);
+            transporter.sendMail(mailOptions, (err, info) => {
+              if (err) {
+                functions.logger.error(err);
+              } else {
+                return functions.logger.log(
+                  "Disbursement email sent to:",
+                  userEmail
+                );
+              }
+            });
 
-        transporter.close();
-      }
+            transporter.close();
+          }
+        }
+      );
     }
-  );
-
-  return console.log("Disbursement email sent to:", userEmail);
+  });
 };
