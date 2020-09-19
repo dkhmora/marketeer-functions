@@ -1,3 +1,11 @@
+const { admin } = require("../util/admin");
+const moment = require("moment");
+require("moment-timezone");
+const PdfPrinter = require("pdfmake");
+const disbursementDD = require("../pdf_templates/disbursement");
+const functions = require("firebase-functions");
+const { notifyUserOfOrderConfirmation } = require("./email");
+
 const fonts = {
   Courier: {
     normal: "Courier",
@@ -31,15 +39,6 @@ const fonts = {
   },
 };
 
-const { admin } = require("../util/admin");
-const moment = require("moment");
-require("moment-timezone");
-const PdfPrinter = require("pdfmake");
-const printer = new PdfPrinter(fonts);
-const disbursementDD = require("../pdf_templates/disbursement");
-const { functions } = require("firebase");
-const { notifyUserOfOrderConfirmation } = require("./email");
-
 const formatTableItem = (text) => {
   return {
     text,
@@ -72,6 +71,8 @@ const formatBoldEmphasizedTableItem = (text) => {
     margin: [0, 5, 0, 5],
   };
 };
+
+const printer = new PdfPrinter(fonts);
 
 const formattedOrder = ({ order, storeName, transactionFeePercentage }) => {
   const {
@@ -125,7 +126,7 @@ exports.createDisbursementInvoicePdf = ({
   successfulTransactionCount,
 }) => {
   return new Promise((resolve, reject) => {
-    const fileRef = admin.storage().bucket().file(`${filePath}/${fileName}`);
+    const fileRef = admin.storage().bucket().file(`${filePath}${fileName}`);
 
     const pdfDoc = printer.createPdfKitDocument(
       disbursementDD({
@@ -166,6 +167,7 @@ exports.createDisbursementInvoicePdf = ({
     });
 
     fileStream.on("error", (err) => {
+      functions.logger.error(err);
       reject(err);
     });
   });

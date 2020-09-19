@@ -12,8 +12,6 @@ exports.signInWithPhoneAndPassword = functions
 
     try {
       const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
-
-      functions.logger.log(user, data);
       const pass = data.password;
 
       await firebase.auth().signInWithEmailAndPassword(user.email, pass);

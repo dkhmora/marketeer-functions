@@ -382,8 +382,6 @@ exports.placeOrder = functions
                   ...storeDetails.fcmTokens,
                 ];
 
-                functions.logger.log(fcmTokens, storeDetails.fcmTokens);
-
                 const {
                   merchantOrderNumber,
                   storeOrderNumber,

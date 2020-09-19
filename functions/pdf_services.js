@@ -8,6 +8,7 @@ require("moment-timezone");
 exports.sendDisbursementInvoicePdfs = functions
   .region("asia-northeast1")
   .pubsub.schedule("0 8 * * 6")
+  .timeZone("Asia/Manila")
   .onRun(async (context) => {
     const timeStamp = firestore.Timestamp.now().toMillis();
     const now = moment(timeStamp, "x");
@@ -22,11 +23,6 @@ exports.sendDisbursementInvoicePdfs = functions
       .weekday(5)
       .endOf("day")
       .format("x");
-
-    if (timeStamp > weekEnd) {
-      weekStart = moment(weekStart, "x").add(1, "weeks").format("x");
-      weekEnd = moment(weekEnd, "x").add(1, "weeks").format("x");
-    }
 
     const weekStartFormatted = moment(weekStart, "x")
       .weekday(6)
@@ -50,104 +46,108 @@ exports.sendDisbursementInvoicePdfs = functions
 
         return merchantIds;
       })
-      .then((merchantIds) => {
-        return merchantIds.map(async (merchantId) => {
-          const merchantData = (
-            await db.collection("merchants").doc(merchantId).get()
-          ).data();
-          const latestDisbursementData = (
-            await db
-              .collection("merchants")
-              .doc(merchantId)
-              .collection("disbursement_periods")
-              .doc(`${weekStartFormatted}-${weekEndFormatted}`)
-              .get()
-          ).data();
+      .then(async (merchantIds) => {
+        return await Promise.all(
+          merchantIds.map(async (merchantId) => {
+            const merchantData = (
+              await db.collection("merchants").doc(merchantId).get()
+            ).data();
+            const latestDisbursementData = (
+              await db
+                .collection("merchants")
+                .doc(merchantId)
+                .collection("disbursement_periods")
+                .doc(`${weekStartFormatted}-${weekEndFormatted}`)
+                .get()
+            ).data();
 
-          const { creditData, user, company, stores } = merchantData;
-          const { companyName, companyAddress } = company;
-          const { userName, userEmail } = user;
-          const { transactionFeePercentage } = creditData;
+            const { creditData, user, company, stores } = merchantData;
+            const { companyName, companyAddress } = company;
+            const { userName, userEmail } = user;
+            const { transactionFeePercentage } = creditData;
 
-          const companyInitials = companyName
-            .split(" ")
-            .map((i) => i.charAt(0).toUpperCase())
-            .join("");
+            const companyInitials = companyName
+              .split(" ")
+              .map((i) => i.charAt(0).toUpperCase())
+              .join("");
 
-          if (latestDisbursementData) {
-            const {
-              totalAmount,
-              totalPaymentGatewayFees,
-              successfulTransactionCount,
-            } = latestDisbursementData;
+            if (latestDisbursementData) {
+              const {
+                totalAmount,
+                totalPaymentGatewayFees,
+                successfulTransactionCount,
+              } = latestDisbursementData;
 
-            const invoiceNumber = `${companyInitials}-${merchantId.slice(
-              -7
-            )}-${weekStartFormatted}${weekEndFormatted}-DI`;
-            const invoiceStatus = "PROCESSING PAYMENT";
-            const dateIssued = now
-              .clone()
-              .tz("Etc/GMT+8")
-              .format("MMMM DD, YYYY");
+              const invoiceNumber = `${companyInitials}-${merchantId.slice(
+                -7
+              )}-${weekStartFormatted}${weekEndFormatted}-DI`;
+              const invoiceStatus = "PROCESSING PAYMENT";
+              const dateIssued = now
+                .clone()
+                .tz("Etc/GMT+8")
+                .format("MMMM DD, YYYY");
 
-            const totalRevenueShare =
-              totalAmount * transactionFeePercentage * 0.01;
-            const totalAmountPayable =
-              totalAmount - totalPaymentGatewayFees - totalRevenueShare;
-            const fileName = `${companyName} - ${invoiceNumber}.pdf`;
-            const filePath = `merchants/${merchantId}/disbursement_invoices/`;
+              const totalRevenueShare =
+                totalAmount * transactionFeePercentage * 0.01;
+              const totalAmountPayable =
+                totalAmount - totalPaymentGatewayFees - totalRevenueShare;
+              const fileName = `${companyName} - ${invoiceNumber}.pdf`;
+              const filePath = `merchants/${merchantId}/disbursement_invoices/`;
 
-            // eslint-disable-next-line promise/no-nesting
-            return await db
-              .collection("order_payments")
-              .where("merchantId", "==", merchantId)
-              .where("status", "==", "S")
-              .where("updatedAt", ">=", Number(weekStart))
-              .orderBy("updatedAt", "desc")
-              .startAfter(Number(weekEnd))
-              .get()
-              .then(async (querySnapshot) => {
-                const orders = [];
+              // eslint-disable-next-line promise/no-nesting
+              return await db
+                .collection("order_payments")
+                .where("merchantId", "==", merchantId)
+                .where("status", "==", "S")
+                .where("updatedAt", ">=", Number(weekStart))
+                .orderBy("updatedAt", "desc")
+                .startAfter(Number(weekEnd))
+                .get()
+                .then(async (querySnapshot) => {
+                  const orders = [];
 
-                await querySnapshot.docs.forEach((documentSnapshot, index) => {
-                  const orderPayment = {
-                    ...documentSnapshot.data(),
-                    orderId: documentSnapshot.id,
-                  };
+                  await querySnapshot.docs.forEach(
+                    (documentSnapshot, index) => {
+                      const orderPayment = {
+                        ...documentSnapshot.data(),
+                        orderId: documentSnapshot.id,
+                      };
 
-                  if (orderPayment.updatedAt <= weekEnd) {
-                    orders.push(orderPayment);
-                  }
+                      if (orderPayment.updatedAt <= weekEnd) {
+                        orders.push(orderPayment);
+                      }
+                    }
+                  );
+
+                  return orders.sort((a, b) => a.updatedAt - b.updatedAt);
+                })
+                .then(async (orders) => {
+                  return await createDisbursementInvoicePdf({
+                    fileName,
+                    filePath,
+                    invoiceNumber,
+                    invoiceStatus,
+                    userName,
+                    userEmail,
+                    companyName,
+                    companyAddress,
+                    dateIssued,
+                    orders,
+                    stores,
+                    transactionFeePercentage,
+                    totalAmountPayable,
+                    totalRevenueShare,
+                    totalPaymentProcessorFee: totalPaymentGatewayFees,
+                    totalAmount,
+                    successfulTransactionCount,
+                  });
                 });
-
-                return orders.sort((a, b) => a.updatedAt - b.updatedAt);
-              })
-              .then(async (orders) => {
-                return await createDisbursementInvoicePdf({
-                  fileName,
-                  filePath,
-                  invoiceNumber,
-                  invoiceStatus,
-                  userName,
-                  userEmail,
-                  companyName,
-                  companyAddress,
-                  dateIssued,
-                  orders,
-                  stores,
-                  transactionFeePercentage,
-                  totalAmountPayable,
-                  totalRevenueShare,
-                  totalPaymentProcessorFee: totalPaymentGatewayFees,
-                  totalAmount,
-                  successfulTransactionCount,
-                });
-              });
-          } else {
-            functions.logger.info(
-              `No disbursement data for ${companyName} in ${weekStartFormatted}-${weekEndFormatted}`
-            );
-          }
-        });
+            } else {
+              functions.logger.info(
+                `No disbursement data for ${companyName} in ${weekStartFormatted}-${weekEndFormatted}`
+              );
+            }
+          })
+        );
       });
   });

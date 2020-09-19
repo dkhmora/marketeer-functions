@@ -23,7 +23,7 @@ exports.notifyUserOfOrderConfirmation = async ({
   userName,
   dateIssued,
 }) => {
-  const file = admin.storage().bucket().file(`${filePath}/${fileName}`);
+  const file = admin.storage().bucket().file(`${filePath}${fileName}`);
 
   const mailerConfig = {
     host: "smtpout.secureserver.net",

@@ -345,10 +345,8 @@ exports.addStoreItem = functions
             });
           }
 
-          return functions.logger.log("does not exist");
+          return null;
         });
-
-      functions.logger.log(storeItemsDocId);
 
       if (storeItemsDocId) {
         const storeItemsDoc = db
