@@ -127,17 +127,18 @@ exports.placeOrder = functions
             .runTransaction(async (transaction) => {
               const storeRef = db.collection("stores").doc(storeId);
               const storeMerchantId = storeAssignedMerchantId[storeId];
-              const storeMerchantRef = db
-                .collection("merchants")
-                .doc(storeMerchantId);
-              const storeItemDocs = [];
-              const storeItemRefs = [];
 
               if (!storeMerchantId) {
                 throw new Error(
                   `Sorry, a store you ordered from is currently not available. Please try again later or place another order from another store.`
                 );
               }
+
+              const storeMerchantRef = db
+                .collection("merchants")
+                .doc(storeMerchantId);
+              const storeItemDocs = [];
+              const storeItemRefs = [];
 
               await storeCartItems[storeId].map((item) => {
                 if (!storeItemDocs.includes(item.doc)) {

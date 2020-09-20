@@ -14,7 +14,7 @@ const getMrSpeedySecretKey = async () => {
   return secretKey;
 };
 
-const getOrderPriceEstimate = async ({ points }) => {
+const getOrderPriceEstimate = async ({ points, motorbike }) => {
   return fetch(
     "https://robotapitest.mrspeedy.ph/api/business/1.1/calculate-order",
     {
@@ -22,6 +22,7 @@ const getOrderPriceEstimate = async ({ points }) => {
       body: JSON.stringify({
         matter: "Order price estimation",
         points,
+        vehicle_type_id: motorbike ? 8 : 7,
       }),
       headers: {
         "X-DV-Auth-Token": await getMrSpeedySecretKey(),

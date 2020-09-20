@@ -33,9 +33,18 @@ exports.getMrSpeedyDeliveryPriceEstimate = functions
           ];
 
           if (deliveryMethods.includes("Mr. Speedy")) {
-            storeDeliveryFees[storeId] = await getOrderPriceEstimate({
+            const motorbikeEstimate = await getOrderPriceEstimate({
               points,
+              motorbike: true,
             });
+            const carEstimate = await getOrderPriceEstimate({
+              points,
+              motorbike: false,
+            });
+
+            storeDeliveryFees[
+              storeId
+            ] = `₱${motorbikeEstimate}(Max. 20kg) - ₱${carEstimate}(Max. 300kg)`;
           }
 
           return null;
