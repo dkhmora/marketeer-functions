@@ -11,19 +11,18 @@ const {
   requestPayment,
   payment_methods,
 } = require("./util/dragonpay");
+const { DEV_MODE } = require("./util/config");
 
 exports.getAvailablePaymentProcessors = functions
   .region("asia-northeast1")
-  .pubsub.schedule("every 15 minutes")
+  .pubsub.schedule(DEV_MODE ? "every 6 hours" : "every 15 minutes")
   .onRun(async (context) => {
     const merchantId = "MARKETEERPH";
     const password = await getDragonPaySecretKey();
     const amount = "-1000";
-    const url =
-      functions.config().app.env === "dev" ||
-      functions.config().app.env === "staging"
-        ? "https://test.dragonpay.ph/DragonPayWebService/MerchantService.asmx"
-        : "https://gw.dragonpay.ph/DragonPayWebService/MerchantService.asmx";
+    const url = DEV_MODE
+      ? "https://test.dragonpay.ph/DragonPayWebService/MerchantService.asmx"
+      : "https://gw.dragonpay.ph/DragonPayWebService/MerchantService.asmx";
     const requestHeaders = {
       "Content-Type": "text/xml; charset=utf-8",
       SOAPAction: "http://api.dragonpay.ph/GetAvailableProcessors",

@@ -92,7 +92,9 @@ exports.setMarketeerAdminToken = setMarketeerAdminToken;
 exports.editUserStoreRoles = editUserStoreRoles;
 
 // Merchant Services
-exports.sendDisbursementInvoicePdfs = sendDisbursementInvoicePdfs;
+exports.sendDisbursementInvoicePdfs = DEV_MODE
+  ? null
+  : sendDisbursementInvoicePdfs;
 
 // Store Services
 exports.changeOrderStatus = changeOrderStatus;

@@ -2,7 +2,7 @@ const queryString = require("query-string");
 const { SHA1 } = require("crypto-js");
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const client = new SecretManagerServiceClient();
-const { DEV_MODE } = require("../util/config");
+const { DEV_MODE, SECRET_PROJECT_ID } = require("../util/config");
 
 const payment_methods = {
   BDO: { paymentGatewayFee: 10, disabled: false },
