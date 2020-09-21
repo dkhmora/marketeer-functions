@@ -20,7 +20,10 @@ exports.getAvailablePaymentProcessors = functions
     const password = await getDragonPaySecretKey();
     const amount = "-1000";
     const url =
-      "https://gw.dragonpay.ph/DragonPayWebService/MerchantService.asmx";
+      functions.config().app.env === "dev" ||
+      functions.config().app.env === "staging"
+        ? "https://test.dragonpay.ph/DragonPayWebService/MerchantService.asmx"
+        : "https://gw.dragonpay.ph/DragonPayWebService/MerchantService.asmx";
     const requestHeaders = {
       "Content-Type": "text/xml; charset=utf-8",
       SOAPAction: "http://api.dragonpay.ph/GetAvailableProcessors",

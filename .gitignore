@@ -63,3 +63,6 @@ node_modules/
 
 # API credentials
 config.js
+
+# .env variables
+.env.*

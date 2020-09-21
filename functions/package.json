@@ -7,9 +7,12 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "firestorerules": "firebase deploy --only firestore:rules",
-    "storagerules": "firebase deploy --only storage:rules",
-    "logs": "firebase functions:log"
+    "rules:firestore": "firebase deploy --only firestore:rules",
+    "rules:storage": "firebase deploy --only storage:rules",
+    "logs": "firebase functions:log",
+    "build:staging": "dotenv -e .env.staging react-scripts build",
+    "build:production": "dotenv -e .env.production react-scripts build",
+    "build:development": "dotenv -e .env.development react-scripts build"
   },
   "engines": {
     "node": "10"

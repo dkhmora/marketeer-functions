@@ -2,6 +2,7 @@ const queryString = require("query-string");
 const { SHA1 } = require("crypto-js");
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const client = new SecretManagerServiceClient();
+const { DEV_MODE } = require("../util/config");
 
 const payment_methods = {
   BDO: { paymentGatewayFee: 10, disabled: false },
@@ -52,7 +53,7 @@ const payment_methods = {
 
 const getDragonPaySecretKey = async () => {
   const [accessResponse] = await client.accessSecretVersion({
-    name: "projects/1549607298/secrets/dragonpay_secret/versions/latest",
+    name: `projects/${SECRET_PROJECT_ID}/secrets/dragonpay_secret/versions/latest`,
   });
   const secretKey = accessResponse.payload.data.toString("utf8");
 
@@ -61,7 +62,7 @@ const getDragonPaySecretKey = async () => {
 
 const getDragonPayApiKey = async () => {
   const [accessResponse] = await client.accessSecretVersion({
-    name: "projects/1549607298/secrets/dragonpay_api_key/versions/latest",
+    name: `projects/${SECRET_PROJECT_ID}/secrets/dragonpay_api_key/versions/latest`,
   });
   const secretKey = accessResponse.payload.data.toString("utf8");
 
@@ -90,9 +91,9 @@ const requestPayment = (secretkey, payload) => {
     procid: payload.processId,
   };
 
-  const url = `https://gw.dragonpay.ph/Pay.aspx?${queryString.stringify(
-    request
-  )}`;
+  const url = DEV_MODE
+    ? `https://test.dragonpay.ph/Pay.aspx?${queryString.stringify(request)}`
+    : `https://gw.dragonpay.ph/Pay.aspx?${queryString.stringify(request)}`;
 
   return { url };
 };
