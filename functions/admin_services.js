@@ -54,7 +54,20 @@ exports.editUserStoreRoles = functions
 exports.setUserAsMerchant = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { userId } = data;
+    const {
+      userId,
+      storeId,
+      companyName,
+      companyAddress,
+      creditThreshold,
+      credits,
+      transactionFeePercentage,
+      userBirthdate,
+      userEmail,
+      userName,
+      userPhone,
+      generateInvoice,
+    } = data;
 
     if (context.auth.token.role !== "marketeer-admin") {
       return { s: 400, m: "Error: User is not authorized for this action" };
@@ -74,13 +87,42 @@ exports.setUserAsMerchant = functions
         role: "merchant",
       })
       .then(async () => {
+        // eslint-disable-next-line promise/no-nesting
         await db
           .collection("merchants")
           .doc(userId)
           .get()
-          .then((document) => {
+          .then(async (document) => {
             if (!document.exists) {
-              return document.ref.set({});
+              const { storeName, storeCategory } = (
+                await db.collection("stores").doc(storeId).get()
+              ).data();
+
+              return document.ref.set({
+                company: {
+                  companyName,
+                  companyAddress,
+                },
+                creditData: {
+                  creditThreshold,
+                  credits,
+                  transactionFeePercentage,
+                },
+                generateInvoice,
+                stores:
+                  storeName && storeCategory
+                    ? {
+                        name: storeName,
+                        category: storeCategory,
+                      }
+                    : {},
+                user: {
+                  userBirthdate,
+                  userEmail,
+                  userName,
+                  userPhone,
+                },
+              });
             }
 
             return null;

@@ -50,10 +50,7 @@ firebase.initializeApp({
 });
 
 // Functions in Development
-if (
-  functions.config().app.env === "dev" ||
-  functions.config().app.env === "staging"
-) {
+if (DEV_MODE) {
   app.post("/returnOrderPayments", returnOrderPayments);
 
   // Mr. Speedy Services
