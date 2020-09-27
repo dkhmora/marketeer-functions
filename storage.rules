@@ -10,10 +10,6 @@ service firebase.storage {
       return request.auth.uid == userId;
     }
 
-    function userIsMerchantAdmin(merchantId) {
-      return request.auth.token.merchantIds[merchantId] || request.auth.token.merchantId == merchantId;
-    }
-
     function userIsAssignedStoreRole(storeId, role) {
       return role in request.auth.token.storeIds[storeId];
     }
@@ -26,9 +22,8 @@ service firebase.storage {
       return request.auth.token.role == 'marketeer-admin';
     }
 
-    match /images/merchants/{merchantId}/{allPaths=**} {
-      allow write: if userIsMerchantAdmin(merchantId);
-      allow read: if userIsAuthenticated();
+    match /merchants/{merchantId}/{allPaths=**} {
+      allow read, write: if userOwnsFile(merchantId);
     }
 
     match /images/stores/{storeId}/items/{fileName} {
@@ -45,8 +40,8 @@ service firebase.storage {
     }
 
     match /images/orders/{orderId}/order_chat/{fileName} {
-      allow read: if userIsMerchantAdmin(resource.metadata.merchantId) || userOwnsFile(resource.metadata.customerUserId);
-      allow create: if userIsMerchantAdmin(request.resource.metadata.merchantId) || userOwnsFile(request.resource.metadata.customerUserId);
+      allow read: if userIsStoreAdmin(resource.metadata.storeId) || userOwnsFile(resource.metadata.customerUserId);
+      allow create: if userIsStoreAdmin(request.resource.metadata.storeId) || userOwnsFile(request.resource.metadata.customerUserId);
     }
 
     match /images/store_categories/{fileName} {

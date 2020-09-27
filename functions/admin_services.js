@@ -2,6 +2,26 @@ const functions = require("firebase-functions");
 const { firestore } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 
+exports.executePayout = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { disbursementDateRange } = data;
+
+    return await db
+      .collection("merchants")
+      .where("generateInvoice", "==", true)
+      .get()
+      .then(async (querySnapshot) => {
+        const merchantIds = [];
+
+        await querySnapshot.docs.forEach((document, index) => {
+          merchantIds.push(document.id);
+        });
+
+        return merchantIds;
+      });
+  });
+
 exports.editUserStoreRoles = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
@@ -16,6 +36,8 @@ exports.editUserStoreRoles = functions
     }
 
     let newStoreIds = { [storeId]: roles };
+
+    // User only manages one store
     /*
     const previousUserCustomClaims = (await admin.auth().getUser(userId))
       .customClaims;
@@ -87,16 +109,24 @@ exports.setUserAsMerchant = functions
         role: "merchant",
       })
       .then(async () => {
+        const storeRef = db.collection("stores").doc(storeId);
         // eslint-disable-next-line promise/no-nesting
-        await db
+        return await db
           .collection("merchants")
           .doc(userId)
           .get()
           .then(async (document) => {
             if (!document.exists) {
-              const { storeName, storeCategory } = (
-                await db.collection("stores").doc(storeId).get()
+              const { storeName, storeCategory, merchantId } = (
+                await storeRef.get()
               ).data();
+
+              if (merchantId) {
+                return {
+                  s: 500,
+                  m: `Error: ${storeId} already has an existing merchantId set!`,
+                };
+              }
 
               return document.ref.set({
                 company: {
@@ -126,12 +156,24 @@ exports.setUserAsMerchant = functions
             }
 
             return null;
-          });
+          })
+          .then((err) => {
+            if (err) {
+              return err;
+            }
 
-        return {
-          s: 200,
-          m: `Successfully added "merchant" role to ${userId}!`,
-        };
+            return storeRef.update({ merchantId: userId });
+          })
+          .then((err) => {
+            if (err) {
+              return err;
+            }
+
+            return {
+              s: 200,
+              m: `Successfully added "merchant" role to ${userId}!`,
+            };
+          });
       });
   });
 
