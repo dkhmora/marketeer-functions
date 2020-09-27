@@ -39,6 +39,10 @@ service firebase.storage {
       allow write: if userIsMarketeerAdmin();
     }
 
+    match /images/merchants/{merchantId}/items/{fileName} {
+      allow read: if userIsAuthenticated();
+    }
+
     match /images/orders/{orderId}/order_chat/{fileName} {
       allow read: if userIsStoreAdmin(resource.metadata.storeId) || userOwnsFile(resource.metadata.customerUserId);
       allow create: if userIsStoreAdmin(request.resource.metadata.storeId) || userOwnsFile(request.resource.metadata.customerUserId);
