@@ -4,9 +4,12 @@ const fetch = require("node-fetch");
 const { db } = require("./admin");
 const { SECRET_PROJECT_ID, DEV_MODE } = require("./config");
 
+/* UNCOMMENT WHEN PRODUCTION READY
 const BASE_URL = DEV_MODE
   ? "https://robotapitest.mrspeedy.ph/api/business/1.1"
   : "https://robot.mrspeedy.ph/api/business/1.1";
+*/
+const BASE_URL = "https://robotapitest.mrspeedy.ph/api/business/1.1";
 
 const getMrSpeedySecretKey = async () => {
   const [accessResponse] = await client.accessSecretVersion({
@@ -37,12 +40,26 @@ const getOrderPriceEstimate = async ({ points, motorbike }) => {
     });
 };
 
-const placeMrSpeedyOrder = async ({ points }) => {
+const placeMrSpeedyOrder = async ({
+  matter,
+  points,
+  insurance_amount,
+  is_motobox_required,
+  payment_method,
+  total_weight_kg,
+  vehicle_type_id,
+}) => {
   return fetch(`${BASE_URL}/create-order`, {
     method: "post",
     body: JSON.stringify({
-      matter: "Documents",
+      matter,
       points,
+      insurance_amount,
+      is_motobox_required,
+      payment_method,
+      total_weight_kg,
+      vehicle_type_id,
+      is_contact_person_notification_enabled: true,
     }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),

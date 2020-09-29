@@ -42,9 +42,10 @@ exports.getMrSpeedyDeliveryPriceEstimate = functions
               motorbike: false,
             });
 
-            storeDeliveryFees[
-              storeId
-            ] = `₱${motorbikeEstimate}(Max. 20kg) - ₱${carEstimate}(Max. 300kg)`;
+            storeDeliveryFees[storeId] = {
+              motorbike: Number(motorbikeEstimate),
+              car: Number(carEstimate),
+            };
           }
 
           return null;

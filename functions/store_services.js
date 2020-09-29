@@ -8,11 +8,12 @@ const {
   getGeohashRange,
   getBoundsOfDistance,
 } = require("./helpers/location");
+const { placeMrSpeedyOrder } = require("./util/mrspeedy");
 
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { orderId, storeId, merchantId } = data;
+    const { orderId, storeId, merchantId, mrspeedyBookingData } = data;
     const userId = context.auth.uid;
     const storeIds = context.auth.token.storeIds;
 
@@ -55,9 +56,14 @@ exports.changeOrderStatus = functions
               storeId,
               orderStatus,
               paymentMethod,
+              deliveryMethod,
               subTotal,
               transactionFee,
+              deliveryCoordinates,
+              deliveryAddress,
+              userPhoneNumber,
             } = orderData;
+            const { storeLocation, storeName, userName, address } = storeData;
             const { stores, creditData } = merchantData;
             const { credits, creditThreshold } = creditData;
             const chargeToTopUp =
@@ -108,15 +114,6 @@ exports.changeOrderStatus = functions
                 nextStatusIndex = 2;
               }
 
-              if (
-                paymentMethod === "Online Banking" &&
-                currentOrderStatus === "unpaid"
-              ) {
-                throw new Error(
-                  "Sorry, you cannot manually change an Online Banking Order's status when it is unpaid."
-                );
-              }
-
               const nextStatus = statusArray[nextStatusIndex];
               newOrderStatus[`${currentOrderStatus}`].status = false;
               newOrderStatus[`${nextStatus}`] = {
@@ -128,6 +125,67 @@ exports.changeOrderStatus = functions
                 orderStatus: newOrderStatus,
                 updatedAt: nowTimestamp,
               };
+
+              if (deliveryMethod === "Mr. Speedy" && nextStatus === "shipped") {
+                /*
+                if (!mrspeedyBookingData) {
+                  throw new Error(
+                    "Error: Incomplete details provided for Mr. Speedy Booking. Please try again."
+                  );
+                }*/
+                const matter = `${userName}'s purchase from ${storeName} via Marketeer`;
+                const { latitude, longitude } = deliveryCoordinates;
+                const points = [
+                  {
+                    address,
+                    ...storeLocation,
+                    contact_person: { phone: "639195380326" },
+                  },
+                  {
+                    address: deliveryAddress,
+                    taking_amount:
+                      paymentMethod === "Online Banking"
+                        ? "0.00"
+                        : String(subTotal.toFixed(2)),
+                    latitude,
+                    longitude,
+                    contact_person: { phone: userPhoneNumber, name: userName },
+                    client_order_id: orderId,
+                    is_order_payment_here: false,
+                  },
+                ];
+
+                // eslint-disable-next-line promise/no-nesting
+                await placeMrSpeedyOrder({
+                  matter,
+                  points,
+                  insurance_amount: subTotal,
+                  is_motobox_required: false,
+                  payment_method:
+                    paymentMethod === "Online Banking" ? "non-cash" : "cash",
+                  total_weight_kg: 20,
+                  vehicle_type_id: 8,
+                }).then((mrspeedyBookingData) => {
+                  if (!mrspeedyBookingData.is_successful) {
+                    throw new Error(
+                      "Error: Something went wrong with booking Mr. Speedy."
+                    );
+                  }
+                  orderUpdateData.mrspeedyBookingData = mrspeedyBookingData;
+                  functions.logger.log(mrspeedyBookingData);
+
+                  return null;
+                });
+              }
+
+              if (
+                paymentMethod === "Online Banking" &&
+                currentOrderStatus === "unpaid"
+              ) {
+                throw new Error(
+                  "Sorry, you cannot manually change an Online Banking Order's status when it is unpaid."
+                );
+              }
 
               if (
                 paymentMethod === "Online Banking" &&
