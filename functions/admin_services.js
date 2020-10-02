@@ -140,10 +140,12 @@ exports.setUserAsMerchant = functions
                 },
                 generateInvoice,
                 stores:
-                  storeName && storeCategory
+                  storeName && storeCategory && storeId
                     ? {
-                        name: storeName,
-                        category: storeCategory,
+                        storeId: {
+                          name: storeName,
+                          category: storeCategory,
+                        },
                       }
                     : {},
                 user: {
