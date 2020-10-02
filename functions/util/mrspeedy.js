@@ -1,4 +1,5 @@
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
+const functions = require("firebase-functions");
 const client = new SecretManagerServiceClient();
 const fetch = require("node-fetch");
 const { db } = require("./admin");
@@ -20,12 +21,19 @@ const getMrSpeedySecretKey = async () => {
   return secretKey;
 };
 
-const getOrderPriceEstimate = async ({ points, motorbike }) => {
+const getOrderPriceEstimate = async ({
+  points,
+  insurance_amount,
+  motorbike,
+}) => {
+  functions.logger.log("insurance", insurance_amount);
+
   return fetch(`${BASE_URL}/calculate-order`, {
     method: "post",
     body: JSON.stringify({
       matter: "Order price estimation",
       points,
+      insurance_amount,
       vehicle_type_id: motorbike ? 8 : 7,
     }),
     headers: {
@@ -36,6 +44,7 @@ const getOrderPriceEstimate = async ({ points, motorbike }) => {
       return res.json();
     })
     .then((json) => {
+      functions.logger.log(json);
       return json.order.delivery_fee_amount;
     });
 };

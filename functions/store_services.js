@@ -62,8 +62,9 @@ exports.changeOrderStatus = functions
               deliveryCoordinates,
               deliveryAddress,
               userPhoneNumber,
+              userName,
             } = orderData;
-            const { storeLocation, storeName, userName, address } = storeData;
+            const { storeLocation, storeName, address } = storeData;
             const { stores, creditData } = merchantData;
             const { credits, creditThreshold } = creditData;
             const chargeToTopUp =
@@ -144,14 +145,12 @@ exports.changeOrderStatus = functions
                   {
                     address: deliveryAddress,
                     taking_amount:
-                      paymentMethod === "Online Banking"
-                        ? "0.00"
-                        : String(subTotal.toFixed(2)),
+                      paymentMethod !== "COD" ? "0.00" : subTotal.toFixed(2),
                     latitude,
                     longitude,
                     contact_person: { phone: userPhoneNumber, name: userName },
                     client_order_id: orderId,
-                    is_order_payment_here: false,
+                    is_order_payment_here: paymentMethod !== "COD",
                   },
                 ];
 
@@ -159,11 +158,10 @@ exports.changeOrderStatus = functions
                 await placeMrSpeedyOrder({
                   matter,
                   points,
-                  insurance_amount: subTotal,
+                  insurance_amount: subTotal.toFixed(2),
                   is_motobox_required: false,
-                  payment_method:
-                    paymentMethod === "Online Banking" ? "non-cash" : "cash",
-                  total_weight_kg: 20,
+                  payment_method: paymentMethod !== "COD" ? "non-cash" : "cash",
+                  total_weight_kg: 19,
                   vehicle_type_id: 8,
                 }).then((mrspeedyBookingData) => {
                   if (!mrspeedyBookingData.is_successful) {

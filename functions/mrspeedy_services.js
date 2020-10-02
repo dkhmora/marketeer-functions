@@ -8,9 +8,10 @@ exports.getMrSpeedyDeliveryPriceEstimate = functions
     const { deliveryLocation, deliveryAddress } = data;
     const { uid } = context.auth;
 
-    const cartStoreIds = Object.keys(
-      (await db.collection("user_carts").doc(uid).get()).data()
-    );
+    const cartStores = (
+      await db.collection("user_carts").doc(uid).get()
+    ).data();
+    const cartStoreIds = Object.keys(cartStores);
 
     let storeDeliveryFees = {};
 
@@ -20,6 +21,13 @@ exports.getMrSpeedyDeliveryPriceEstimate = functions
           const { storeLocation, address, deliveryMethods } = (
             await db.collection("stores").doc(storeId).get()
           ).data();
+          const storeCartItems = cartStores[storeId];
+
+          let subTotal = 0;
+
+          await storeCartItems.map((item) => {
+            subTotal = item.price * item.quantity + subTotal;
+          });
 
           const points = [
             {
@@ -32,13 +40,17 @@ exports.getMrSpeedyDeliveryPriceEstimate = functions
             },
           ];
 
+          functions.logger.log(subTotal, subTotal.toFixed(2));
+
           if (deliveryMethods.includes("Mr. Speedy")) {
             const motorbikeEstimate = await getOrderPriceEstimate({
               points,
+              insurance_amount: subTotal.toFixed(2),
               motorbike: true,
             });
             const carEstimate = await getOrderPriceEstimate({
               points,
+              insurance_amount: subTotal.toFixed(2),
               motorbike: false,
             });
 
