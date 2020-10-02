@@ -142,7 +142,7 @@ exports.setUserAsMerchant = functions
                 stores:
                   storeName && storeCategory && storeId
                     ? {
-                        storeId: {
+                        [storeId]: {
                           name: storeName,
                           category: storeCategory,
                         },
