@@ -159,16 +159,16 @@ exports.setUserAsMerchant = functions
 
             return null;
           })
-          .then((err) => {
-            if (err) {
-              return err;
+          .then((res) => {
+            if (res.s === 500) {
+              return res;
             }
 
             return storeRef.update({ merchantId: userId });
           })
-          .then((err) => {
-            if (err) {
-              return err;
+          .then((res) => {
+            if (res.s === 500) {
+              return res;
             }
 
             return {
