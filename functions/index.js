@@ -43,7 +43,10 @@ const {
 } = require("./payments");
 const { returnOrderPayments } = require("./miscellaneous");
 const { sendDisbursementInvoicePdfs } = require("./pdf_services");
-const { getMrSpeedyDeliveryPriceEstimate } = require("./mrspeedy_services");
+const {
+  getMrSpeedyDeliveryPriceEstimate,
+  getMerchantMrSpeedyDeliveryPriceEstimate,
+} = require("./mrspeedy_services");
 
 firebase.initializeApp({
   ...FB_CONFIG,
@@ -55,6 +58,7 @@ if (DEV_MODE) {
 
   // Mr. Speedy Services
   exports.getMrSpeedyDeliveryPriceEstimate = getMrSpeedyDeliveryPriceEstimate;
+  exports.getMerchantMrSpeedyDeliveryPriceEstimate = getMerchantMrSpeedyDeliveryPriceEstimate;
 
   // Payout Postback/Callback URLs
   app.post("/payout/checkPayout", checkPayout);

@@ -2,7 +2,7 @@ const { getOrderPriceEstimate } = require("./util/mrspeedy");
 const functions = require("firebase-functions");
 const { db } = require("./util/admin");
 
-exports.getMrSpeedyDeliveryPriceEstimate = functions
+exports.getUserMrSpeedyDeliveryPriceEstimate = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
     const { deliveryLocation, deliveryAddress } = data;
@@ -65,6 +65,47 @@ exports.getMrSpeedyDeliveryPriceEstimate = functions
       ).then(() => {
         return { s: 200, m: "Success", d: storeDeliveryFees };
       });
+    } catch (e) {
+      functions.logger.error(e);
+      return { s: 500, m: "Error: Something went wrong" };
+    }
+  });
+
+exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const {
+      subTotal,
+      deliveryLocation,
+      deliveryAddress,
+      storeLocation,
+      vehicleType,
+      orderWeight,
+      storeAddress,
+    } = data;
+
+    try {
+      const points = [
+        {
+          address: storeAddress,
+          ...storeLocation,
+        },
+        {
+          address: deliveryAddress,
+          ...deliveryLocation,
+        },
+      ];
+
+      functions.logger.log(subTotal, subTotal.toFixed(2));
+
+      const orderEstimate = await getOrderPriceEstimate({
+        points,
+        insurance_amount: subTotal.toFixed(2),
+        motorbike: vehicleType === 8,
+        orderWeight,
+      });
+
+      return { s: 200, m: "Success", d: orderEstimate };
     } catch (e) {
       functions.logger.error(e);
       return { s: 500, m: "Error: Something went wrong" };

@@ -25,6 +25,7 @@ const getOrderPriceEstimate = async ({
   points,
   insurance_amount,
   motorbike,
+  orderWeight,
 }) => {
   functions.logger.log("insurance", insurance_amount);
 
@@ -35,6 +36,7 @@ const getOrderPriceEstimate = async ({
       points,
       insurance_amount,
       vehicle_type_id: motorbike ? 8 : 7,
+      total_weight_kg: orderWeight ? orderWeight : 0,
     }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
