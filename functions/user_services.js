@@ -328,6 +328,8 @@ exports.placeOrder = functions
                     items: orderItems,
                     storeId,
                     userId,
+                    updatedAt: timeStamp,
+                    createdAt: timeStamp,
                   });
 
                   transaction.set(ordersRef.doc(orderId), {
