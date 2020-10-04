@@ -16,6 +16,7 @@ exports.changeOrderStatus = functions
     const { orderId, storeId, merchantId, mrspeedyBookingData } = data;
     const userId = context.auth.uid;
     const storeIds = context.auth.token.storeIds;
+    const storePhoneNumber = context.auth.token.phone_number;
 
     if (!userId || !storeIds) {
       return { s: 400, m: "Error: User is not authorized" };
@@ -128,19 +129,40 @@ exports.changeOrderStatus = functions
               };
 
               if (deliveryMethod === "Mr. Speedy" && nextStatus === "shipped") {
-                /*
                 if (!mrspeedyBookingData) {
                   throw new Error(
                     "Error: Incomplete details provided for Mr. Speedy Booking. Please try again."
                   );
-                }*/
-                const matter = `${userName}'s purchase from ${storeName} via Marketeer`;
+                }
+
+                const {
+                  vehicleType,
+                  motobox,
+                  orderWeight,
+                } = mrspeedyBookingData;
+                const orderItems = (
+                  await db.collection("order_items").doc(orderId).get()
+                ).data();
+                const { items } = orderItems;
+                const packages = await items.map((item, index) => {
+                  const itemPrice = item.discountedPrice
+                    ? item.discountedPrice
+                    : item.price;
+
+                  return {
+                    ware_code: item.itemId,
+                    description: `${item.name}: ${item.description}`,
+                    items_count: item.quantity,
+                    item_payment_amount: itemPrice,
+                  };
+                });
+                const matter = `${userName}'s order from ${storeName} via Marketeer`;
                 const { latitude, longitude } = deliveryCoordinates;
                 const points = [
                   {
                     address,
                     ...storeLocation,
-                    contact_person: { phone: "639195380326" },
+                    contact_person: { phone: storePhoneNumber },
                   },
                   {
                     address: deliveryAddress,
@@ -159,10 +181,11 @@ exports.changeOrderStatus = functions
                   matter,
                   points,
                   insurance_amount: subTotal.toFixed(2),
-                  is_motobox_required: false,
+                  is_motobox_required: motobox,
                   payment_method: paymentMethod !== "COD" ? "non-cash" : "cash",
-                  total_weight_kg: 19,
-                  vehicle_type_id: 8,
+                  total_weight_kg: orderWeight,
+                  vehicle_type_id: vehicleType,
+                  packages,
                 }).then((mrspeedyBookingData) => {
                   if (!mrspeedyBookingData.is_successful) {
                     throw new Error(

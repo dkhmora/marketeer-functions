@@ -57,6 +57,7 @@ const placeMrSpeedyOrder = async ({
   payment_method,
   total_weight_kg,
   vehicle_type_id,
+  packages,
 }) => {
   return fetch(`${BASE_URL}/create-order`, {
     method: "post",
@@ -69,6 +70,7 @@ const placeMrSpeedyOrder = async ({
       total_weight_kg,
       vehicle_type_id,
       is_contact_person_notification_enabled: true,
+      packages,
     }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
