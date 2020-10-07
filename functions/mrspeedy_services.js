@@ -82,6 +82,7 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
       vehicleType,
       orderWeight,
       storeAddress,
+      paymentMethod,
     } = data;
 
     try {
@@ -93,6 +94,8 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
         {
           address: deliveryAddress,
           ...deliveryLocation,
+          is_order_payment_here: paymentMethod === "COD",
+          is_cod_cash_voucher_required: paymentMethod === "COD",
         },
       ];
 
@@ -103,6 +106,7 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
         insurance_amount: subTotal.toFixed(2),
         motorbike: vehicleType === 8,
         orderWeight,
+        paymentMethod,
       });
 
       return { s: 200, m: "Success", d: orderEstimate };

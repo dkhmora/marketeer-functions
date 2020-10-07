@@ -39,6 +39,7 @@ exports.changeOrderStatus = functions
           "shipped",
           "completed",
         ];
+        let mrspeedyMessage = "";
 
         let orderData, storeData, merchantData;
 
@@ -129,7 +130,13 @@ exports.changeOrderStatus = functions
               };
 
               if (deliveryMethod === "Mr. Speedy" && nextStatus === "shipped") {
-                if (!mrspeedyBookingData) {
+                if (
+                  !mrspeedyBookingData ||
+                  !mrspeedyBookingData.vehicleType ||
+                  mrspeedyBookingData.motobox === undefined ||
+                  !mrspeedyBookingData.orderWeight ||
+                  !mrspeedyBookingData.storePhoneNumber
+                ) {
                   throw new Error(
                     "Error: Incomplete details provided for Mr. Speedy Booking. Please try again."
                   );
@@ -139,6 +146,7 @@ exports.changeOrderStatus = functions
                   vehicleType,
                   motobox,
                   orderWeight,
+                  storePhoneNumber,
                 } = mrspeedyBookingData;
                 const orderItems = (
                   await db.collection("order_items").doc(orderId).get()
@@ -151,49 +159,92 @@ exports.changeOrderStatus = functions
 
                   return {
                     ware_code: item.itemId,
-                    description: `${item.name}: ${item.description}`,
+                    description: `${item.name}${`: ${item.description}`}`,
                     items_count: item.quantity,
-                    item_payment_amount: itemPrice,
+                    items_count_units: item.unit,
+                    item_payment_amount: itemPrice.toFixed(2),
+                    cod_agreement: true,
                   };
                 });
+                functions.logger.log(packages);
                 const matter = `${userName}'s order from ${storeName} via Marketeer`;
                 const { latitude, longitude } = deliveryCoordinates;
-                const points = [
+                const esimationPoints = [
                   {
                     address,
                     ...storeLocation,
-                    contact_person: { phone: storePhoneNumber },
+                  },
+                  {
+                    address: deliveryAddress,
+                    latitude,
+                    longitude,
+                    client_order_id: orderId,
+                    is_order_payment_here: paymentMethod === "COD",
+                    is_cod_cash_voucher_required: paymentMethod === "COD",
+                    //packages,
+                  },
+                ];
+
+                const totalDeliveryFee = getOrderPriceEstimate({
+                  points: esimationPoints,
+                  insurance_amount: subTotal.toFixed(2),
+                  motorbike: vehicleType === 8,
+                  orderWeight,
+                  paymentMethod,
+                });
+
+                const takingAmount = (
+                  subTotal + Number(totalDeliveryFee)
+                ).toFixed(2);
+
+                const finalPoints = [
+                  {
+                    address,
+                    ...storeLocation,
+                    contact_person: {
+                      phone: storePhoneNumber,
+                      name: storeName,
+                    },
                   },
                   {
                     address: deliveryAddress,
                     taking_amount:
-                      paymentMethod !== "COD" ? "0.00" : subTotal.toFixed(2),
+                      paymentMethod !== "COD" ? "0.00" : takingAmount,
                     latitude,
                     longitude,
                     contact_person: { phone: userPhoneNumber, name: userName },
                     client_order_id: orderId,
-                    is_order_payment_here: paymentMethod !== "COD",
+                    is_cod_cash_voucher_required: paymentMethod === "COD",
+                    is_order_payment_here: paymentMethod === "COD",
+                    //packages,
                   },
                 ];
 
                 // eslint-disable-next-line promise/no-nesting
                 await placeMrSpeedyOrder({
                   matter,
-                  points,
+                  points: finalPoints,
                   insurance_amount: subTotal.toFixed(2),
                   is_motobox_required: motobox,
                   payment_method: paymentMethod !== "COD" ? "non-cash" : "cash",
                   total_weight_kg: orderWeight,
                   vehicle_type_id: vehicleType,
-                  packages,
                 }).then((mrspeedyBookingData) => {
+                  functions.logger.log(mrspeedyBookingData);
                   if (!mrspeedyBookingData.is_successful) {
+                    functions.logger.log(
+                      mrspeedyBookingData.parameter_errors.points[0],
+                      mrspeedyBookingData.parameter_errors.points[1]
+                    );
+
                     throw new Error(
                       "Error: Something went wrong with booking Mr. Speedy."
                     );
                   }
+
+                  mrspeedyMessage =
+                    "Successfully placed Mr. Speedy Booking! Please wait for the courier to arrive.";
                   orderUpdateData.mrspeedyBookingData = mrspeedyBookingData;
-                  functions.logger.log(mrspeedyBookingData);
 
                   return null;
                 });
@@ -362,7 +413,10 @@ exports.changeOrderStatus = functions
               ? await admin.messaging().sendAll(orderNotifications)
               : null;
 
-            return { s: 200, m: "Order status successfully updated!" };
+            return {
+              s: 200,
+              m: `Order status successfully updated! ${mrspeedyMessage}`,
+            };
           });
       });
     } catch (e) {

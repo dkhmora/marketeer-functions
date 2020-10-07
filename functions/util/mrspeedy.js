@@ -26,6 +26,7 @@ const getOrderPriceEstimate = async ({
   insurance_amount,
   motorbike,
   orderWeight,
+  paymentMethod,
 }) => {
   functions.logger.log("insurance", insurance_amount);
 
@@ -37,6 +38,7 @@ const getOrderPriceEstimate = async ({
       insurance_amount,
       vehicle_type_id: motorbike ? 8 : 7,
       total_weight_kg: orderWeight ? orderWeight : 0,
+      payment_method: paymentMethod === "COD" ? "cash" : "non_cash",
     }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
@@ -47,7 +49,7 @@ const getOrderPriceEstimate = async ({
     })
     .then((json) => {
       functions.logger.log(json);
-      return json.order.delivery_fee_amount;
+      return json.order.payment_amount;
     });
 };
 
@@ -59,7 +61,6 @@ const placeMrSpeedyOrder = async ({
   payment_method,
   total_weight_kg,
   vehicle_type_id,
-  packages,
 }) => {
   return fetch(`${BASE_URL}/create-order`, {
     method: "post",
@@ -72,7 +73,6 @@ const placeMrSpeedyOrder = async ({
       total_weight_kg,
       vehicle_type_id,
       is_contact_person_notification_enabled: true,
-      packages,
     }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
