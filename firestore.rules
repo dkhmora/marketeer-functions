@@ -40,13 +40,13 @@ service cloud.firestore {
     }
 
     match /merchants/{merchantId} {
-      allow read: if userOwnsDoc(merchantId);
-      allow read, write: if userIsMarketeerAdmin();
+      allow read: if userOwnsDoc(merchantId) || userIsMarketeerAdmin();
+      allow write: if userIsMarketeerAdmin();
     }
 
     match /merchants/{merchantId}/disbursement_periods/{allPages=**} {
-      allow read: if userOwnsDoc(merchantId);
-      allow read, write: if userIsMarketeerAdmin();
+      allow read: if userOwnsDoc(merchantId) || userIsMarketeerAdmin();
+      allow write: if userIsMarketeerAdmin();
     }
 
     match /merchant_topups/{paymentId} {
