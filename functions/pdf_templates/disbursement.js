@@ -5,7 +5,7 @@ const dd = ({
   companyName,
   companyAddress,
   dateIssued,
-  formattedOrders,
+  formattedDragonpayOrders,
   totalAmountPayable,
   totalRevenueShare,
   transactionFeePercentage,
@@ -310,7 +310,7 @@ const dd = ({
                 textTransform: "uppercase",
               },
             ],
-            ...formattedOrders, // Insert Orders
+            ...formattedDragonpayOrders, // Insert Orders
           ],
         },
       },

@@ -104,7 +104,7 @@ exports.sendDisbursementInvoicePdfs = functions
                 .startAfter(Number(weekEnd))
                 .get()
                 .then(async (querySnapshot) => {
-                  const orders = [];
+                  const dragonpayOrders = [];
 
                   await querySnapshot.docs.forEach(
                     (documentSnapshot, index) => {
@@ -114,33 +114,72 @@ exports.sendDisbursementInvoicePdfs = functions
                       };
 
                       if (orderPayment.updatedAt <= weekEnd) {
-                        orders.push(orderPayment);
+                        dragonpayOrders.push(orderPayment);
                       }
                     }
                   );
 
-                  return orders.sort((a, b) => a.updatedAt - b.updatedAt);
+                  return {
+                    dragonpayOrders: dragonpayOrders.sort(
+                      (a, b) => a.updatedAt - b.updatedAt
+                    ),
+                  };
                 })
-                .then(async (orders) => {
-                  return await createDisbursementInvoicePdf({
-                    fileName,
-                    filePath,
-                    invoiceNumber,
-                    invoiceStatus,
-                    userName,
-                    userEmail,
-                    companyName,
-                    companyAddress,
-                    dateIssued,
-                    orders,
-                    stores,
-                    transactionFeePercentage,
-                    totalAmountPayable,
-                    totalRevenueShare,
-                    totalPaymentProcessorFee: totalPaymentGatewayFees,
-                    totalAmount,
-                    successfulTransactionCount,
-                  });
+                .then(async ({ dragonpayOrders }) => {
+                  // eslint-disable-next-line promise/no-nesting
+                  return await db
+                    .collection("orders")
+                    .where("merchantId", "==", merchantId)
+                    .where("status", "==", "S")
+                    .where("updatedAt", ">=", Number(weekStart))
+                    .orderBy("updatedAt", "desc")
+                    .startAfter(Number(weekEnd))
+                    .get()
+                    .then(async (querySnapshot) => {
+                      const mrspeedyOrders = [];
+
+                      await querySnapshot.docs.forEach(
+                        (documentSnapshot, index) => {
+                          const mrspeedyOrder = {
+                            ...documentSnapshot.data(),
+                            orderId: documentSnapshot.id,
+                          };
+
+                          if (orderPayment.updatedAt <= weekEnd) {
+                            mrspeedyOrders.push(mrspeedyOrder);
+                          }
+                        }
+                      );
+
+                      return {
+                        dragonpayOrders,
+                        mrspeedyOrders: mrspeedyOrders.sort(
+                          (a, b) => a.updatedAt - b.updatedAt
+                        ),
+                      };
+                    })
+                    .then(async ({ dragonpayOrders, mrspeedyOrders }) => {
+                      return await createDisbursementInvoicePdf({
+                        fileName,
+                        filePath,
+                        invoiceNumber,
+                        invoiceStatus,
+                        userName,
+                        userEmail,
+                        companyName,
+                        companyAddress,
+                        dateIssued,
+                        dragonpayOrders,
+                        mrspeedyOrders,
+                        stores,
+                        transactionFeePercentage,
+                        totalAmountPayable,
+                        totalRevenueShare,
+                        totalPaymentProcessorFee: totalPaymentGatewayFees,
+                        totalAmount,
+                        successfulTransactionCount,
+                      });
+                    });
                 });
             } else {
               functions.logger.info(

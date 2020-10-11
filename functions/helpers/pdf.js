@@ -98,7 +98,7 @@ const formattedOrder = ({ order, storeName, transactionFeePercentage }) => {
   ];
 };
 
-const formattedOrders = ({ orders, stores, transactionFeePercentage }) => {
+const formattedDragonpayOrders = ({ orders, stores, transactionFeePercentage }) => {
   return orders.map((order) => {
     const storeName = stores[order.storeId].name;
 
@@ -116,7 +116,8 @@ exports.createDisbursementInvoicePdf = ({
   companyName,
   companyAddress,
   dateIssued,
-  orders,
+  dragonpayOrders,
+  mrspeedyOrders,
   stores,
   transactionFeePercentage,
   totalAmountPayable,
@@ -136,8 +137,13 @@ exports.createDisbursementInvoicePdf = ({
         companyName,
         companyAddress,
         dateIssued,
-        formattedOrders: formattedOrders({
-          orders,
+        formattedDragonpayOrders: formattedDragonpayOrders({
+          dragonpayOrders,
+          stores,
+          transactionFeePercentage,
+        }),
+        formattedMrspeedyOrders: formattedMrspeedyOrders({
+          mrspeedyOrders,
           stores,
           transactionFeePercentage,
         }),

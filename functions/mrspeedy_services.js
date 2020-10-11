@@ -94,12 +94,11 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
         {
           address: deliveryAddress,
           ...deliveryLocation,
+          taking_amount: paymentMethod !== "COD" ? "0.00" : subTotal.toFixed(2),
           is_order_payment_here: paymentMethod === "COD",
           is_cod_cash_voucher_required: paymentMethod === "COD",
         },
       ];
-
-      functions.logger.log(subTotal, subTotal.toFixed(2));
 
       const orderEstimate = await getOrderPriceEstimate({
         points,
@@ -115,3 +114,7 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
       return { s: 500, m: "Error: Something went wrong" };
     }
   });
+
+exports.mrspeedyNotification = async (req, res) => {
+  functions.logger.log(req);
+};

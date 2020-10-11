@@ -8,7 +8,10 @@ const {
   getGeohashRange,
   getBoundsOfDistance,
 } = require("./helpers/location");
-const { placeMrSpeedyOrder } = require("./util/mrspeedy");
+const {
+  placeMrSpeedyOrder,
+  getOrderPriceEstimate,
+} = require("./util/mrspeedy");
 
 exports.changeOrderStatus = functions
   .region("asia-northeast1")
@@ -179,13 +182,14 @@ exports.changeOrderStatus = functions
                     latitude,
                     longitude,
                     client_order_id: orderId,
+                    taking_amount: paymentMethod !== "COD" ? "0.00" : "1.00",
                     is_order_payment_here: paymentMethod === "COD",
                     is_cod_cash_voucher_required: paymentMethod === "COD",
                     //packages,
                   },
                 ];
 
-                const totalDeliveryFee = getOrderPriceEstimate({
+                const totalDeliveryFee = await getOrderPriceEstimate({
                   points: esimationPoints,
                   insurance_amount: subTotal.toFixed(2),
                   motorbike: vehicleType === 8,
@@ -193,9 +197,15 @@ exports.changeOrderStatus = functions
                   paymentMethod,
                 });
 
+                functions.logger.log(
+                  subTotal,
+                  totalDeliveryFee,
+                  Number(totalDeliveryFee)
+                );
                 const takingAmount = (
                   subTotal + Number(totalDeliveryFee)
                 ).toFixed(2);
+                functions.logger.log(takingAmount);
 
                 const finalPoints = [
                   {

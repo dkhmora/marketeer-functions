@@ -3,6 +3,7 @@ const functions = require("firebase-functions");
 const firebase = require("firebase");
 const { FB_CONFIG, DEV_MODE } = require("./util/config");
 const app = require("express")();
+const mrspeedyApp = require("express")();
 
 const {
   scheduledFirestoreExport,
@@ -46,6 +47,7 @@ const { sendDisbursementInvoicePdfs } = require("./pdf_services");
 const {
   getMrSpeedyDeliveryPriceEstimate,
   getMerchantMrSpeedyDeliveryPriceEstimate,
+  mrspeedyNotification,
 } = require("./mrspeedy_services");
 
 firebase.initializeApp({
@@ -62,6 +64,13 @@ if (DEV_MODE) {
 
   // Payout Postback/Callback URLs
   app.post("/payout/checkPayout", checkPayout);
+
+  // Mr. Speedy Callback
+  mrspeedyApp.post("/order/update", mrspeedyNotification);
+
+  exports.mrspeedy = functions
+    .region("asia-northeast1")
+    .https.onRequest(mrspeedyApp);
 }
 
 // Dragonpay Services
