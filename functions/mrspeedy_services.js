@@ -1,4 +1,7 @@
-const { getOrderPriceEstimate } = require("./util/mrspeedy");
+const {
+  getOrderPriceEstimate,
+  getMrSpeedyCourierInfo,
+} = require("./util/mrspeedy");
 const functions = require("firebase-functions");
 const { db } = require("./util/admin");
 
@@ -109,6 +112,34 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
       });
 
       return { s: 200, m: "Success", d: orderEstimate };
+    } catch (e) {
+      functions.logger.error(e);
+      return { s: 500, m: "Error: Something went wrong" };
+    }
+  });
+
+exports.getMrSpeedyCourierInfo = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { orderId, clientOrderId } = data;
+
+    try {
+      const { is_successful, courier } = await getMrSpeedyCourierInfo({
+        orderId,
+      });
+
+      if (is_successful) {
+        await db.collection("orders").doc(clientOrderId).set(
+          {
+            mrspeedyBookingData: { courier },
+          },
+          { merge: true }
+        );
+      } else {
+        throw new Error("Failed to get courier data");
+      }
+
+      return await getMrSpeedyCourierInfo({ orderId });
     } catch (e) {
       functions.logger.error(e);
       return { s: 500, m: "Error: Something went wrong" };

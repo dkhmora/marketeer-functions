@@ -48,6 +48,7 @@ const {
   getMrSpeedyDeliveryPriceEstimate,
   getMerchantMrSpeedyDeliveryPriceEstimate,
   mrspeedyNotification,
+  getMrSpeedyCourierInfo,
 } = require("./mrspeedy_services");
 
 firebase.initializeApp({
@@ -61,6 +62,7 @@ if (DEV_MODE) {
   // Mr. Speedy Services
   exports.getMrSpeedyDeliveryPriceEstimate = getMrSpeedyDeliveryPriceEstimate;
   exports.getMerchantMrSpeedyDeliveryPriceEstimate = getMerchantMrSpeedyDeliveryPriceEstimate;
+  exports.getMrSpeedyCourierInfo = getMrSpeedyCourierInfo;
 
   // Payout Postback/Callback URLs
   app.post("/payout/checkPayout", checkPayout);
