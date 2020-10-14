@@ -21,6 +21,15 @@ const getMrSpeedySecretKey = async () => {
   return secretKey;
 };
 
+const getMrSpeedyCallbackSecretKey = async () => {
+  const [accessResponse] = await client.accessSecretVersion({
+    name: `projects/${SECRET_PROJECT_ID}/secrets/mrspeedy_callback_key/versions/latest`,
+  });
+  const secretKey = accessResponse.payload.data.toString("utf8");
+
+  return secretKey;
+};
+
 const getOrderPriceEstimate = async ({
   points,
   insurance_amount,
@@ -112,6 +121,7 @@ const getMrSpeedyCourierInfo = async ({ orderId }) => {
 
 module.exports = {
   getMrSpeedySecretKey,
+  getMrSpeedyCallbackSecretKey,
   getOrderPriceEstimate,
   placeMrSpeedyOrder,
   cancelMrSpeedyOrder,

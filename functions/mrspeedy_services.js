@@ -1,9 +1,12 @@
 const {
   getOrderPriceEstimate,
   getMrSpeedyCourierInfo,
+  getMrSpeedyCallbackSecretKey,
 } = require("./util/mrspeedy");
 const functions = require("firebase-functions");
 const { db } = require("./util/admin");
+const { SHA256, HmacSHA256 } = require("crypto-js");
+const { createHmac } = require("crypto");
 
 exports.getUserMrSpeedyDeliveryPriceEstimate = functions
   .region("asia-northeast1")
@@ -147,5 +150,45 @@ exports.getMrSpeedyCourierInfo = functions
   });
 
 exports.mrspeedyNotification = async (req, res) => {
-  functions.logger.log(req);
+  const { headers, body } = req;
+
+  try {
+    if (headers["x-dv-signature"] === undefined) {
+      throw new Error("Error: No signature found.");
+    }
+
+    const callbackSecret = await getMrSpeedyCallbackSecretKey();
+    const hmac = createHmac("sha256", callbackSecret)
+      .update(JSON.stringify(body))
+      .digest("hex");
+
+    if (callbackSecret !== hmac) {
+      throw new Error("Error: Digest mismatch");
+    }
+
+    const { order, event_type, event_datetime } = body;
+    const { points } = order;
+    const orderId = points[1].client_order_id;
+    const timestamp = firebase.firestore.Timestamp.now().toMillis();
+
+    if (event_type === "order_changed") {
+      db.collection("orders")
+        .doc(orderId)
+        .set(
+          {
+            mrspeedyBookingData: {
+              order,
+              updatedAt: timestamp,
+            },
+            updatedAt: timestamp,
+          },
+          { merge: true }
+        );
+    }
+  } catch (e) {
+    functions.logger.error(e);
+    return res.status(500);
+  }
+
+  return res.status(200);
 };
