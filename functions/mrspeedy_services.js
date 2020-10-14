@@ -162,7 +162,7 @@ exports.mrspeedyNotification = async (req, res) => {
       .update(JSON.stringify(body))
       .digest("hex");
 
-    if (callbackSecret !== hmac) {
+    if (headers["x-dv-signature"] !== hmac) {
       throw new Error("Error: Digest mismatch");
     }
 
@@ -172,7 +172,8 @@ exports.mrspeedyNotification = async (req, res) => {
     const timestamp = firebase.firestore.Timestamp.now().toMillis();
 
     if (event_type === "order_changed") {
-      db.collection("orders")
+      return await db
+        .collection("orders")
         .doc(orderId)
         .set(
           {
@@ -183,12 +184,13 @@ exports.mrspeedyNotification = async (req, res) => {
             updatedAt: timestamp,
           },
           { merge: true }
-        );
+        )
+        .then(() => {
+          return res.status(200);
+        });
     }
   } catch (e) {
     functions.logger.error(e);
     return res.status(500);
   }
-
-  return res.status(200);
 };
