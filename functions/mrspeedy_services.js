@@ -5,9 +5,12 @@ const {
 } = require("./util/mrspeedy");
 const functions = require("firebase-functions");
 const { db } = require("./util/admin");
-const { SHA256, HmacSHA256 } = require("crypto-js");
 const { createHmac } = require("crypto");
 const { firestore } = require("firebase-admin");
+const {
+  getCurrentWeeklyPeriodFromTimestamp,
+  getCurrentTimestamp,
+} = require("./helpers/time");
 
 exports.getUserMrSpeedyDeliveryPriceEstimate = functions
   .region("asia-northeast1")
@@ -170,7 +173,7 @@ exports.mrspeedyNotification = async (req, res) => {
     const { order, event_type, event_datetime } = body;
     const { points } = order;
     const orderId = points[1].client_order_id;
-    const timestamp = firestore.Timestamp.now().toMillis();
+    const timestamp = await getCurrentTimestamp();
 
     if (event_type === "order_changed") {
       return await db
@@ -186,6 +189,45 @@ exports.mrspeedyNotification = async (req, res) => {
           },
           { merge: true }
         )
+        .then(async () => {
+          if (order.status === "completed") {
+            const orderDoc = db.collection("orders").doc(orderId);
+            const { merchantId, subTotal, deliveryFee, deliveryDiscount } = (
+              await orderDoc.get()
+            ).data();
+            const {
+              weekStart,
+              weekEnd,
+            } = await getCurrentWeeklyPeriodFromTimestamp(timestamp);
+            const period = `${weekStart}-${weekEnd}`;
+            const merchantInvoiceDoc = db
+              .collection("merchants")
+              .doc(merchantId)
+              .collection("disbursement_periods")
+              .doc(period);
+
+            return await merchantInvoiceDoc.set(
+              {
+                startDate: moment(weekStart, "MMDDYYYY").format("MM-DD-YYYY"),
+                endDate: moment(weekEnd, "MMDDYYYY").format("MM-DD-YYYY"),
+                mrspeedy: {
+                  transactionCount: firestore.FieldValue.increment(1),
+                  totalAmount: firestore.FieldValue.increment(subTotal),
+                  totalDeliveryFee: firestore.FieldValue.increment(deliveryFee),
+                  totalDeliveryDiscount: firestore.FieldValue.increment(
+                    deliveryDiscount
+                  ),
+                  updatedAt: timestamp,
+                },
+                status: "Pending",
+                updatedAt: timestamp,
+              },
+              { merge: true }
+            );
+          }
+
+          return null;
+        })
         .then(() => {
           return res.status(200).send("OK");
         });
