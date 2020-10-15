@@ -75,7 +75,8 @@ exports.sendDisbursementInvoicePdfs = functions
               const {
                 totalAmount,
                 totalPaymentGatewayFees,
-                successfulTransactionCount,
+                onlineBankingTransactionCount,
+                mrspeedyCODTransactionCount,
               } = latestDisbursementData;
 
               const invoiceNumber = `${companyInitials}-${merchantId.slice(
@@ -130,7 +131,11 @@ exports.sendDisbursementInvoicePdfs = functions
                   return await db
                     .collection("orders")
                     .where("merchantId", "==", merchantId)
-                    .where("status", "==", "S")
+                    .where(
+                      "mrspeedyBookingData.order.status",
+                      "==",
+                      "completed"
+                    )
                     .where("updatedAt", ">=", Number(weekStart))
                     .orderBy("updatedAt", "desc")
                     .startAfter(Number(weekEnd))
@@ -177,7 +182,8 @@ exports.sendDisbursementInvoicePdfs = functions
                         totalRevenueShare,
                         totalPaymentProcessorFee: totalPaymentGatewayFees,
                         totalAmount,
-                        successfulTransactionCount,
+                        onlineBankingTransactionCount,
+                        mrspeedyCODTransactionCount,
                       });
                     });
                 });

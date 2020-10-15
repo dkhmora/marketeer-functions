@@ -337,11 +337,14 @@ exports.checkPayment = async (req, res) => {
             .then((document) => {
               if (document.exists) {
                 return merchantInvoiceDoc.update({
-                  successfulTransactionCount: firestore.FieldValue.increment(1),
-                  totalAmount: firestore.FieldValue.increment(paymentAmount),
-                  totalPaymentGatewayFees: firestore.FieldValue.increment(
-                    paymentGatewayFee
-                  ),
+                  onlineBanking: {
+                    transactionCount: firestore.FieldValue.increment(1),
+                    totalAmount: firestore.FieldValue.increment(paymentAmount),
+                    totalPaymentGatewayFees: firestore.FieldValue.increment(
+                      paymentGatewayFee
+                    ),
+                    updatedAt: timeStamp,
+                  },
                   updatedAt: timeStamp,
                 });
               }
@@ -349,9 +352,14 @@ exports.checkPayment = async (req, res) => {
               return merchantInvoiceDoc.set({
                 startDate: moment(weekStart, "MMDDYYYY").format("MM-DD-YYYY"),
                 endDate: moment(weekEnd, "MMDDYYYY").format("MM-DD-YYYY"),
-                successfulTransactionCount: 1,
-                totalAmount: paymentAmount,
-                totalPaymentGatewayFees: paymentGatewayFee,
+                onlineBanking: {
+                  transactionCount: firestore.FieldValue.increment(1),
+                  totalAmount: firestore.FieldValue.increment(paymentAmount),
+                  totalPaymentGatewayFees: firestore.FieldValue.increment(
+                    paymentGatewayFee
+                  ),
+                  updatedAt: timeStamp,
+                },
                 status: "Pending",
                 updatedAt: timeStamp,
                 createdAt: timeStamp,

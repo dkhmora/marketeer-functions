@@ -187,7 +187,7 @@ exports.mrspeedyNotification = async (req, res) => {
           { merge: true }
         )
         .then(() => {
-          return res.status(200);
+          return res.status(200).send("OK");
         });
     }
   } catch (e) {

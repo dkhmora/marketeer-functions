@@ -74,7 +74,11 @@ const formatBoldEmphasizedTableItem = (text) => {
 
 const printer = new PdfPrinter(fonts);
 
-const formattedOrder = ({ order, storeName, transactionFeePercentage }) => {
+const formattedDragonpayOrder = ({
+  order,
+  storeName,
+  transactionFeePercentage,
+}) => {
   const {
     paymentGatewayFee,
     updatedAt,
@@ -98,11 +102,52 @@ const formattedOrder = ({ order, storeName, transactionFeePercentage }) => {
   ];
 };
 
-const formattedDragonpayOrders = ({ orders, stores, transactionFeePercentage }) => {
+const formattedDragonpayOrders = ({
+  dragonpayOrders,
+  stores,
+  transactionFeePercentage,
+}) => {
   return orders.map((order) => {
     const storeName = stores[order.storeId].name;
 
-    return formattedOrder({ order, storeName, transactionFeePercentage });
+    return formattedDragonpayOrder({
+      dragonpayOrders,
+      storeName,
+      transactionFeePercentage,
+    });
+  });
+};
+
+const formattedMrspeedyOrder = ({ order, storeName }) => {
+  const {
+    updatedAt,
+    subTotal,
+    orderId,
+    deliveryDiscount,
+    transactionFee,
+  } = order;
+  const orderDate = moment(updatedAt, "x").format("MM-DD-YYYY");
+  const totalAmountPayable = subTotal - deliveryDiscount - transactionFee;
+
+  return [
+    formatTableItem(orderDate),
+    formatTableItem(orderId),
+    formatTableItem(storeName),
+    formatTableItem(`₱${subTotal}`),
+    formatTableItem(`₱${transactionFee}`),
+    formatTableItem(`₱${deliveryDiscount ? deliveryDiscount : "0"}`),
+    formatEmphasizedTableItem(`₱${totalAmountPayable}`),
+  ];
+};
+
+const formattedMrspeedyOrders = ({ mrspeedyOrders, stores }) => {
+  return mrspeedyOrders.map((order) => {
+    const storeName = stores[order.storeId].name;
+
+    return formattedMrspeedyOrder({
+      order,
+      storeName,
+    });
   });
 };
 
@@ -124,7 +169,8 @@ exports.createDisbursementInvoicePdf = ({
   totalRevenueShare,
   totalPaymentProcessorFee,
   totalAmount,
-  successfulTransactionCount,
+  onlineBankingTransactionCount,
+  mrspeedyCODTransactionCount,
 }) => {
   return new Promise((resolve, reject) => {
     const fileRef = admin.storage().bucket().file(`${filePath}${fileName}`);
@@ -145,14 +191,14 @@ exports.createDisbursementInvoicePdf = ({
         formattedMrspeedyOrders: formattedMrspeedyOrders({
           mrspeedyOrders,
           stores,
-          transactionFeePercentage,
         }),
         totalAmountPayable,
         totalRevenueShare,
         transactionFeePercentage,
         totalPaymentProcessorFee,
         totalAmount,
-        successfulTransactionCount,
+        onlineBankingTransactionCount,
+        mrspeedyCODTransactionCount,
       })
     );
     const fileStream = fileRef.createWriteStream();
