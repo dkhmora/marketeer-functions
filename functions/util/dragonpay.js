@@ -43,7 +43,7 @@ let payment_methods = {
   BITC: { paymentGatewayFee: 10, disabled: false },
   GRPY: { paymentGatewayFee: 20, disabled: false },
   I2I: { paymentGatewayFee: 15, disabled: false },
-  GCSH: { paymentGatewayFee: 20, disabled: true },
+  GCSH: { paymentGatewayFee: 20, disabled: false },
   711: { paymentGatewayFee: 20, disabled: true },
   BDOA: { paymentGatewayFee: 15, disabled: false },
   BPIA: { paymentGatewayFee: 10, disabled: false },
