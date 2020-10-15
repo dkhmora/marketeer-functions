@@ -202,7 +202,9 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
       ? `Payment to ${storeName} for Order #${orderId} (Not inclusive of delivery fee)`
       : `Payment to ${storeName} for Order #${orderId} (Inclusive of delivery fee)`;
   const amount =
-    deliveryMethod === "Own Delivery" ? subTotal + deliveryPrice : subTotal;
+    deliveryMethod === "Own Delivery" || deliveryMethod === "Mr. Speedy"
+      ? subTotal + deliveryPrice
+      : subTotal;
 
   const paymentInput = {
     merchantId: "MARKETEERPH",
@@ -222,6 +224,9 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
   return await transactionDoc
     .set({
       paymentAmount: amount,
+      subTotal,
+      deliveryPrice,
+      deliveryMethod,
       transactionFee,
       paymentGatewayFee,
       storeId,

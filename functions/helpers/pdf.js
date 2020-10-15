@@ -74,46 +74,42 @@ const formatBoldEmphasizedTableItem = (text) => {
 
 const printer = new PdfPrinter(fonts);
 
-const formattedDragonpayOrder = ({
-  order,
-  storeName,
-  transactionFeePercentage,
-}) => {
+const formattedDragonpayOrder = ({ order, storeName }) => {
   const {
     paymentGatewayFee,
     updatedAt,
     paymentAmount,
+    deliveryMethod,
+    deliveryPrice,
+    subTotal,
     processId,
     orderId,
+    transactionFee,
   } = order;
   const orderDate = moment(updatedAt, "x").format("MM-DD-YYYY");
-  const revenueShare = paymentAmount * transactionFeePercentage * 0.01;
-  const totalAmountPayable = paymentAmount - revenueShare - paymentGatewayFee;
+  const orderAmount =
+    deliveryMethod === "Own Delivery" ? subTotal + deliveryPrice : subTotal;
+  const totalAmountPayable = orderAmount - transactionFee - paymentGatewayFee;
 
   return [
     formatTableItem(orderDate),
     formatTableItem(orderId),
     formatTableItem(storeName),
-    formatTableItem(`₱${paymentAmount}`),
-    formatTableItem(`₱${revenueShare}`),
+    formatTableItem(`₱${orderAmount}`),
+    formatTableItem(`₱${transactionFee}`),
     formatTableItem(processId),
     formatTableItem(`₱${paymentGatewayFee}`),
     formatEmphasizedTableItem(`₱${totalAmountPayable}`),
   ];
 };
 
-const formattedDragonpayOrders = ({
-  dragonpayOrders,
-  stores,
-  transactionFeePercentage,
-}) => {
+const formattedDragonpayOrders = ({ dragonpayOrders, stores }) => {
   return orders.map((order) => {
     const storeName = stores[order.storeId].name;
 
     return formattedDragonpayOrder({
       dragonpayOrders,
       storeName,
-      transactionFeePercentage,
     });
   });
 };
@@ -127,7 +123,7 @@ const formattedMrspeedyOrder = ({ order, storeName }) => {
     transactionFee,
   } = order;
   const orderDate = moment(updatedAt, "x").format("MM-DD-YYYY");
-  const totalAmountPayable = subTotal - deliveryDiscount - transactionFee;
+  const totalAmountPayable = subTotal - transactionFee - deliveryDiscount;
 
   return [
     formatTableItem(orderDate),
@@ -186,7 +182,6 @@ exports.createDisbursementInvoicePdf = ({
         formattedDragonpayOrders: formattedDragonpayOrders({
           dragonpayOrders,
           stores,
-          transactionFeePercentage,
         }),
         formattedMrspeedyOrders: formattedMrspeedyOrders({
           mrspeedyOrders,

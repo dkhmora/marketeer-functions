@@ -75,9 +75,12 @@ exports.sendDisbursementInvoicePdfs = functions
               const {
                 totalAmount,
                 totalPaymentGatewayFees,
-                onlineBankingTransactionCount,
-                mrspeedyCODTransactionCount,
+                onlineBanking,
+                mrspeedy,
               } = latestDisbursementData;
+              const mrspeedyCODTransactionCount = mrspeedy.transactionCount;
+              const onlineBankingTransactionCount =
+                onlineBanking.transactionCount;
 
               const invoiceNumber = `${companyInitials}-${merchantId.slice(
                 -7
