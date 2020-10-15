@@ -234,6 +234,7 @@ exports.changeOrderStatus = functions
                   mrspeedyMessage =
                     "Successfully placed Mr. Speedy Booking! Please wait for the courier to arrive.";
                   orderUpdateData.mrspeedyBookingData = mrspeedyBookingData;
+                  orderUpdateData.deliveryPrice = Number(totalDeliveryFee);
 
                   return null;
                 });
