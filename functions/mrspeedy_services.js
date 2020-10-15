@@ -7,6 +7,7 @@ const functions = require("firebase-functions");
 const { db } = require("./util/admin");
 const { SHA256, HmacSHA256 } = require("crypto-js");
 const { createHmac } = require("crypto");
+const { firestore } = require("firebase-admin");
 
 exports.getUserMrSpeedyDeliveryPriceEstimate = functions
   .region("asia-northeast1")
@@ -169,7 +170,7 @@ exports.mrspeedyNotification = async (req, res) => {
     const { order, event_type, event_datetime } = body;
     const { points } = order;
     const orderId = points[1].client_order_id;
-    const timestamp = firebase.firestore.Timestamp.now().toMillis();
+    const timestamp = firestore.Timestamp.now().toMillis();
 
     if (event_type === "order_changed") {
       return await db

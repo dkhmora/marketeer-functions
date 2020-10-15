@@ -151,25 +151,6 @@ exports.changeOrderStatus = functions
                   orderWeight,
                   storePhoneNumber,
                 } = mrspeedyBookingData;
-                const orderItems = (
-                  await db.collection("order_items").doc(orderId).get()
-                ).data();
-                const { items } = orderItems;
-                const packages = await items.map((item, index) => {
-                  const itemPrice = item.discountedPrice
-                    ? item.discountedPrice
-                    : item.price;
-
-                  return {
-                    ware_code: item.itemId,
-                    description: `${item.name}${`: ${item.description}`}`,
-                    items_count: item.quantity,
-                    items_count_units: item.unit,
-                    item_payment_amount: itemPrice.toFixed(2),
-                    cod_agreement: true,
-                  };
-                });
-                functions.logger.log(packages);
                 const matter = `${userName}'s order from ${storeName} via Marketeer`;
                 const { latitude, longitude } = deliveryCoordinates;
                 const esimationPoints = [
@@ -185,7 +166,6 @@ exports.changeOrderStatus = functions
                     taking_amount: paymentMethod !== "COD" ? "0.00" : "1.00",
                     is_order_payment_here: paymentMethod === "COD",
                     is_cod_cash_voucher_required: paymentMethod === "COD",
-                    //packages,
                   },
                 ];
 
@@ -226,7 +206,6 @@ exports.changeOrderStatus = functions
                     client_order_id: orderId,
                     is_cod_cash_voucher_required: paymentMethod === "COD",
                     is_order_payment_here: paymentMethod === "COD",
-                    //packages,
                   },
                 ];
 
