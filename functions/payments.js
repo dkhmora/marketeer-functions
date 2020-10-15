@@ -188,6 +188,7 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
     userEmail,
     processId,
     subTotal,
+    transactionFee,
     deliveryMethod,
     deliveryPrice,
     storeName,
@@ -221,6 +222,7 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
   return await transactionDoc
     .set({
       paymentAmount: amount,
+      transactionFee,
       paymentGatewayFee,
       storeId,
       merchantId,
