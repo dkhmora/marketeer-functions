@@ -214,7 +214,7 @@ exports.changeOrderStatus = functions
                   matter,
                   points: finalPoints,
                   insurance_amount: subTotal.toFixed(2),
-                  is_motobox_required: motobox,
+                  is_motobox_required: vehicleType === 8 ? motobox : false,
                   payment_method: paymentMethod !== "COD" ? "non-cash" : "cash",
                   total_weight_kg: orderWeight,
                   vehicle_type_id: vehicleType,
