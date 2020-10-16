@@ -72,12 +72,7 @@ exports.sendDisbursementInvoicePdfs = functions
               .join("");
 
             if (latestDisbursementData) {
-              const {
-                totalAmount,
-                totalPaymentGatewayFees,
-                onlineBanking,
-                mrspeedy,
-              } = latestDisbursementData;
+              const { onlineBanking, mrspeedy } = latestDisbursementData;
               const mrspeedyCODTransactionCount = mrspeedy.transactionCount;
               const onlineBankingTransactionCount =
                 onlineBanking.transactionCount;
@@ -185,8 +180,8 @@ exports.sendDisbursementInvoicePdfs = functions
                         totalRevenueShare,
                         totalPaymentProcessorFee: totalPaymentGatewayFees,
                         totalAmount,
-                        onlineBankingTransactionCount,
-                        mrspeedyCODTransactionCount,
+                        onlineBanking,
+                        mrspeedy,
                       });
                     });
                 });

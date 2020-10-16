@@ -145,6 +145,17 @@ exports.changeOrderStatus = functions
                   );
                 }
 
+                functions.logger.log(mrspeedyBookingData);
+
+                if (
+                  mrspeedyBookingData.vehicleType !== 8 &&
+                  mrspeedyBookingData.vehicleType !== 7
+                ) {
+                  throw new Error(
+                    "Error: Invalid details provided for Mr. Speedy Booking. Please try again."
+                  );
+                }
+
                 const {
                   vehicleType,
                   motobox,
@@ -173,7 +184,7 @@ exports.changeOrderStatus = functions
                   points: esimationPoints,
                   insurance_amount: subTotal.toFixed(2),
                   motorbike: vehicleType === 8,
-                  orderWeight,
+                  orderWeight: vehicleType === 8 ? orderWeight : 0,
                   paymentMethod,
                 });
 
@@ -216,7 +227,7 @@ exports.changeOrderStatus = functions
                   insurance_amount: subTotal.toFixed(2),
                   is_motobox_required: vehicleType === 8 ? motobox : false,
                   payment_method: paymentMethod !== "COD" ? "non-cash" : "cash",
-                  total_weight_kg: orderWeight,
+                  total_weight_kg: vehicleType === 8 ? orderWeight : 0,
                   vehicle_type_id: vehicleType,
                 }).then((mrspeedyBookingData) => {
                   functions.logger.log(mrspeedyBookingData);

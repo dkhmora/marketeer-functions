@@ -5,15 +5,17 @@ const dd = ({
   companyName,
   companyAddress,
   dateIssued,
-  formattedDragonpayOrders,
-  formattedMrspeedyOrders,
+  transactionFeePercentage,
   totalAmountPayable,
   totalRevenueShare,
-  transactionFeePercentage,
-  totalPaymentProcessorFee,
-  totalAmount,
-  onlineBankingTransactionCount,
-  mrspeedyCODTransactionCount,
+  onlineBanking,
+  onlineBankingTotalRevenueShare,
+  onlineBankingTotalAmountPayable,
+  formattedDragonpayOrders,
+  mrspeedy,
+  mrspeedyTotalRevenueShare,
+  mrspeedyTotalAmountPayable,
+  formattedMrspeedyOrders,
 }) => {
   return {
     pageOrientation: "landscape",
@@ -88,7 +90,7 @@ const dd = ({
                       alignment: "right",
                     },
                     {
-                      text: onlineBankingTransactionCount,
+                      text: onlineBanking.transactionCount,
                       bold: true,
                       color: "#333333",
                       fontSize: 12,
@@ -108,7 +110,7 @@ const dd = ({
                       alignment: "right",
                     },
                     {
-                      text: mrspeedyCODTransactionCount,
+                      text: mrspeedy.transactionCount,
                       bold: true,
                       color: "#333333",
                       fontSize: 12,
@@ -497,7 +499,7 @@ const dd = ({
           body: [
             [
               {
-                text: "Total Amount",
+                text: "Online Banking Total Order Purchase Amount",
                 fontSize: 10,
                 border: [false, true, false, true],
                 alignment: "right",
@@ -505,7 +507,7 @@ const dd = ({
               },
               {
                 border: [false, true, false, true],
-                text: `₱${totalAmount}`,
+                text: `₱${onlineBanking.totalAmount}`,
                 fontSize: 10,
                 alignment: "right",
                 fillColor: "#f5f5f5",
@@ -514,14 +516,14 @@ const dd = ({
             ],
             [
               {
-                text: "Total Payment Processor Fee",
+                text: "Payment Processor Fee Total",
                 fontSize: 10,
                 border: [false, false, false, true],
                 alignment: "right",
                 margin: [0, 5, 0, 5],
               },
               {
-                text: `₱${totalPaymentProcessorFee}`,
+                text: `₱${onlineBanking.totalPaymentGatewayFees}`,
                 fontSize: 10,
                 border: [false, false, false, true],
                 fillColor: "#f5f5f5",
@@ -531,7 +533,109 @@ const dd = ({
             ],
             [
               {
-                text: `Total ${transactionFeePercentage}% Revenue Share`,
+                text: `Online Banking ${transactionFeePercentage}% Revenue Share Total`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${onlineBankingTotalRevenueShare}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Online Banking Amount Payable Total",
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${onlineBankingTotalAmountPayable}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Mr. Speedy COD Total Order Purchase Amount",
+                fontSize: 10,
+                border: [false, true, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                border: [false, true, false, true],
+                text: `₱${mrspeedy.totalAmount}`,
+                fontSize: 10,
+                alignment: "right",
+                fillColor: "#f5f5f5",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Mr. Speedy COD Applied Delivery Discount Total",
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${mrspeedy.totalDeliveryDiscount}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: `Mr. Speedy ${transactionFeePercentage}% Revenue Share Total`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${mrspeedyTotalRevenueShare}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Mr. Speedy Amount Payable Total",
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${mrspeedyTotalAmountPayable}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Revenue Share Total",
                 fontSize: 10,
                 border: [false, false, false, true],
                 alignment: "right",
@@ -548,7 +652,7 @@ const dd = ({
             ],
             [
               {
-                text: "Total Amount Payable",
+                text: "Amount Payable Total",
                 bold: true,
                 fontSize: 12,
                 alignment: "right",
