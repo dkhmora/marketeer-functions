@@ -65,7 +65,6 @@ exports.sendDisbursementInvoicePdfs = functions
             const { companyName, companyAddress } = company;
             const { userName, userEmail } = user;
             const { transactionFeePercentage } = creditData;
-
             const companyInitials = companyName
               .split(" ")
               .map((i) => i.charAt(0).toUpperCase())
@@ -73,10 +72,6 @@ exports.sendDisbursementInvoicePdfs = functions
 
             if (latestDisbursementData) {
               const { onlineBanking, mrspeedy } = latestDisbursementData;
-              const mrspeedyCODTransactionCount = mrspeedy.transactionCount;
-              const onlineBankingTransactionCount =
-                onlineBanking.transactionCount;
-
               const invoiceNumber = `${companyInitials}-${merchantId.slice(
                 -7
               )}-${weekStartFormatted}${weekEndFormatted}-DI`;
@@ -85,11 +80,6 @@ exports.sendDisbursementInvoicePdfs = functions
                 .clone()
                 .tz("Etc/GMT+8")
                 .format("MMMM DD, YYYY");
-
-              const totalRevenueShare =
-                totalAmount * transactionFeePercentage * 0.01;
-              const totalAmountPayable =
-                totalAmount - totalPaymentGatewayFees - totalRevenueShare;
               const fileName = `${companyName} - ${invoiceNumber}.pdf`;
               const filePath = `merchants/${merchantId}/disbursement_invoices/`;
 
@@ -176,12 +166,8 @@ exports.sendDisbursementInvoicePdfs = functions
                         mrspeedyOrders,
                         stores,
                         transactionFeePercentage,
-                        totalAmountPayable,
-                        totalRevenueShare,
-                        totalPaymentProcessorFee: totalPaymentGatewayFees,
-                        totalAmount,
-                        onlineBanking,
                         mrspeedy,
+                        onlineBanking,
                       });
                     });
                 });
