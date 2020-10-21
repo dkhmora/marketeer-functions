@@ -36,7 +36,19 @@ service cloud.firestore {
     }
 
     function documentIsOlderThan(days, docTime) {
-      return request.time.toMillis() > docTime + 86400000 * days
+      return request.time.toMillis() > docTime + 86400000 * days;
+    }
+
+    function affectedKeys(obj1Key, keys){
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    function affectedKeysObj(obj1Key, keys){
+      return request.resource.data[obj1Key].diff(resource.data[obj1Key]).affectedKeys().hasOnly(keys);
+    }
+
+    function affectedKeysNestedObj(obj1Key, obj2Key, keys){
+      return request.resource.data[obj1Key][obj2Key].diff(resource.data[obj1Key][obj2Key]).affectedKeys().hasOnly(keys);
     }
 
     match /merchants/{merchantId} {
@@ -61,7 +73,9 @@ service cloud.firestore {
       && notUpdating('users') && notUpdating('orderNumber')
       && notUpdating('devOnly') && notUpdating('reviewNumber')
       && notUpdating('ratingAverage') && notUpdating('address')
-      && notUpdating('creditThresholdReached');
+      && notUpdating('creditThresholdReached')
+      && affectedKeysNestedObj('availableDeliveryMethods', 'Mr. Speedy', ['activated', 'discount', 'discountActivated', 'discountMinimum'])
+      && affectedKeysNestedObj('availableDeliveryMethods', 'Own Delivery', ['deliveryPrice', 'activated', 'discount', 'discountActivated', 'discountMinimum']);
       allow read: if userIsAuthenticated();
       allow write: if userIsMarketeerAdmin();
     }
