@@ -68,6 +68,7 @@ exports.placeOrder = functions
       storeSelectedDeliveryMethod,
       storeSelectedPaymentMethod,
       storeAssignedMerchantId,
+      storeDeliveryDiscount,
     } = JSON.parse(orderInfo);
 
     const userId = context.auth.uid;
@@ -201,6 +202,31 @@ exports.placeOrder = functions
                     );
                   }
 
+                  const orderItems = storeCartItems[storeId];
+                  const deliveryMethod = storeSelectedDeliveryMethod[storeId];
+                  const paymentMethod = storeSelectedPaymentMethod[storeId];
+                  const storeDeliveryMethod =
+                    storeDetails.availableDeliveryMethods[deliveryMethod];
+
+                  if (
+                    !storeDetails.availableDeliveryMethods[deliveryMethod] ||
+                    !storeDetails.availableDeliveryMethods[deliveryMethod]
+                      .activated
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} currently does not support the delivery method ${deliveryMethod}. Please try ordering again.`
+                    );
+                  }
+
+                  if (
+                    storeDeliveryDiscount[storeId] !==
+                    storeDetails.deliveryDiscount.discountAmount
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} has updated their delivery promo. Please try placing your order again.`
+                    );
+                  }
+
                   const {
                     stores,
                     creditData,
@@ -235,9 +261,6 @@ exports.placeOrder = functions
                   let quantity = 0;
                   let subTotal = 0;
 
-                  const orderItems = storeCartItems[storeId];
-                  const deliveryMethod = storeSelectedDeliveryMethod[storeId];
-                  const paymentMethod = storeSelectedPaymentMethod[storeId];
                   const userEmail =
                     paymentMethod !== "COD"
                       ? storeUserEmail[storeId]
@@ -271,15 +294,18 @@ exports.placeOrder = functions
                   const timeStamp = firestore.Timestamp.now().toMillis();
                   const newStoreOrderNumber = currentStoreOrderNumber + 1;
                   const newUserOrderNumber = currentUserOrderNumber + 1;
-                  const freeDelivery =
-                    deliveryMethod === "Own Delivery" &&
-                    subTotal >= storeDetails.freeDeliveryMinimum &&
-                    storeDetails.freeDelivery;
-                  const deliveryPrice = freeDelivery
-                    ? 0
-                    : deliveryMethod !== "Own Delivery"
-                    ? null
-                    : storeDetails.ownDeliveryServiceFee;
+                  const discountedDelivery =
+                    storeDetails.deliveryDiscount &&
+                    storeDetails.deliveryDiscount.activated &&
+                    subTotal >=
+                      storeDetails.deliveryDiscount.minimumOrderAmount;
+                  const deliveryPrice =
+                    deliveryMethod === "Own Delivery"
+                      ? storeDeliveryMethod.deliveryPrice
+                      : null;
+                  const deliveryDiscount = discountedDelivery
+                    ? storeDetails.deliveryDiscount.discountAmount
+                    : null;
 
                   let orderDetails = {
                     reviewed: false,
@@ -299,9 +325,9 @@ exports.placeOrder = functions
                       subTotal *
                       merchantDetails.creditData.transactionFeePercentage *
                       0.01,
-                    freeDelivery,
                     deliveryMethod,
                     deliveryPrice,
+                    deliveryDiscount,
                     paymentMethod: "COD",
                     storeId,
                     merchantId: storeDetails.merchantId,

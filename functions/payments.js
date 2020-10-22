@@ -327,10 +327,10 @@ exports.checkPayment = async (req, res) => {
             .then(async () => {
               return await merchantInvoiceDoc.set(
                 {
-                  startDate: await getWeekStartFromTimestamp(timestamp).format(
+                  startDate: await moment(weekStart, "MMDDYYYY").format(
                     "MM-DD-YYYY"
                   ),
-                  endDate: await getWeekEndFromTimestamp(timestamp).format(
+                  endDate: await moment(weekEnd, "MMDDYYYY").format(
                     "MM-DD-YYYY"
                   ),
                   onlineBanking: {

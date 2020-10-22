@@ -11,6 +11,7 @@ const {
   getCurrentWeeklyPeriodFromTimestamp,
   getCurrentTimestamp,
 } = require("./helpers/time");
+const moment = require("moment");
 
 exports.getUserMrSpeedyDeliveryPriceEstimate = functions
   .region("asia-northeast1")
@@ -171,11 +172,13 @@ exports.mrspeedyNotification = async (req, res) => {
     }
 
     const { order, event_type, event_datetime } = body;
+
+    functions.logger.log(order);
     const { points } = order;
     const orderId = points[1].client_order_id;
     const timestamp = await getCurrentTimestamp();
 
-    if (event_type === "order_changed") {
+    if (event_type === "order_changed" && points.length > 0) {
       return await db
         .collection("orders")
         .doc(orderId)
@@ -190,7 +193,7 @@ exports.mrspeedyNotification = async (req, res) => {
           { merge: true }
         )
         .then(async () => {
-          if (order.status === "completed") {
+          if (order.status === "active") {
             const orderDoc = db.collection("orders").doc(orderId);
             const { merchantId, subTotal, deliveryFee, deliveryDiscount } = (
               await orderDoc.get()
@@ -206,6 +209,8 @@ exports.mrspeedyNotification = async (req, res) => {
               .collection("disbursement_periods")
               .doc(period);
 
+            functions.logger.log(subTotal, deliveryFee);
+
             return await merchantInvoiceDoc.set(
               {
                 startDate: moment(weekStart, "MMDDYYYY").format("MM-DD-YYYY"),
@@ -215,7 +220,7 @@ exports.mrspeedyNotification = async (req, res) => {
                   totalAmount: firestore.FieldValue.increment(subTotal),
                   totalDeliveryFee: firestore.FieldValue.increment(deliveryFee),
                   totalDeliveryDiscount: firestore.FieldValue.increment(
-                    deliveryDiscount
+                    deliveryDiscount ? deliveryDiscount : 0
                   ),
                   updatedAt: timestamp,
                 },
