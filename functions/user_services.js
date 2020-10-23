@@ -218,15 +218,6 @@ exports.placeOrder = functions
                     );
                   }
 
-                  if (
-                    storeDeliveryDiscount[storeId] !==
-                    storeDetails.deliveryDiscount.discountAmount
-                  ) {
-                    throw new Error(
-                      `Sorry, ${storeDetails.storeName} has updated their delivery promo. Please try placing your order again.`
-                    );
-                  }
-
                   const {
                     stores,
                     creditData,
@@ -294,7 +285,7 @@ exports.placeOrder = functions
                   const timeStamp = firestore.Timestamp.now().toMillis();
                   const newStoreOrderNumber = currentStoreOrderNumber + 1;
                   const newUserOrderNumber = currentUserOrderNumber + 1;
-                  const discountedDelivery =
+                  const deliveryDiscountApplicable =
                     storeDetails.deliveryDiscount &&
                     storeDetails.deliveryDiscount.activated &&
                     subTotal >=
@@ -303,9 +294,19 @@ exports.placeOrder = functions
                     deliveryMethod === "Own Delivery"
                       ? storeDeliveryMethod.deliveryPrice
                       : null;
-                  const deliveryDiscount = discountedDelivery
+                  const deliveryDiscount = deliveryDiscountApplicable
                     ? storeDetails.deliveryDiscount.discountAmount
                     : null;
+
+                  if (
+                    deliveryDiscountApplicable &&
+                    storeDeliveryDiscount[storeId] !==
+                      storeDetails.deliveryDiscount.discountAmount
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} has updated their delivery promo. Please try placing your order again.`
+                    );
+                  }
 
                   let orderDetails = {
                     reviewed: false,
