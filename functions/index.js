@@ -3,6 +3,7 @@ const functions = require("firebase-functions");
 const firebase = require("firebase");
 const { FB_CONFIG, DEV_MODE } = require("./util/config");
 const app = require("express")();
+const adminApp = require("express")();
 const mrspeedyApp = require("express")();
 
 const {
@@ -34,6 +35,7 @@ const {
   editUserStoreRoles,
   createStoreEmployeeAccount,
   setMarketeerAdminToken,
+  executeNewDeliveryFormat,
 } = require("./admin_services");
 const {
   checkPayout,
@@ -102,6 +104,12 @@ exports.getUserFromUserId = getUserFromUserId;
 exports.createStoreEmployeeAccount = createStoreEmployeeAccount;
 exports.setMarketeerAdminToken = setMarketeerAdminToken;
 exports.editUserStoreRoles = editUserStoreRoles;
+
+adminApp.post("/executeNewDeliveryFormat", executeNewDeliveryFormat);
+
+exports.adminApi = functions
+  .region("asia-northeast1")
+  .https.onRequest(adminApp);
 
 // Merchant Services
 exports.sendDisbursementInvoicePdfs = DEV_MODE

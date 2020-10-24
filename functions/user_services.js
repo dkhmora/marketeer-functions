@@ -218,6 +218,16 @@ exports.placeOrder = functions
                     );
                   }
 
+                  if (
+                    !storeDetails.availablePaymentMethods[deliveryMethod] ||
+                    !storeDetails.availablePaymentMethods[deliveryMethod]
+                      .activated
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} currently does not support the payment method ${paymentMethod}. Please try ordering again.`
+                    );
+                  }
+
                   const {
                     stores,
                     creditData,
