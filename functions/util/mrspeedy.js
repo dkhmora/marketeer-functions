@@ -106,11 +106,8 @@ const cancelMrSpeedyOrder = async (orderId) => {
 };
 
 const getMrSpeedyCourierInfo = async (orderId) => {
-  return fetch(`${BASE_URL}/courier`, {
+  return fetch(`${BASE_URL}/courier?order_id=${orderId}`, {
     method: "get",
-    body: JSON.stringify({
-      order_id: orderId,
-    }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
     },

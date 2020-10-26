@@ -146,9 +146,10 @@ exports.getMrSpeedyCourierInfo = functions
     }
 
     try {
-      const { is_successful, courier } = await getMrSpeedyCourierInfo({
-        mrspeedyOrderId,
-      });
+      const mrspeedyOrderData = await getMrSpeedyCourierInfo(mrspeedyOrderId);
+      const { is_successful, courier } = mrspeedyOrderData;
+
+      functions.logger.log(mrspeedyOrderData);
 
       if (is_successful) {
         return { s: 200, d: courier };
@@ -179,16 +180,18 @@ exports.cancelMrSpeedyOrder = functions
 
           if (
             !context.auth.token.storeIds[storeId] ||
-            !context.auth.token.storeIds[storeId].includes("admin") ||
-            !context.auth.token.storeIds[storeId].includes("manager") ||
-            !context.auth.token.storeIds[storeId].includes("cashier")
+            (!context.auth.token.storeIds[storeId].includes("admin") &&
+              !context.auth.token.storeIds[storeId].includes("manager") &&
+              !context.auth.token.storeIds[storeId].includes("cashier"))
           ) {
             throw new Error("Error: User is not authorized for this action");
           }
 
-          const { is_successful, order } = await cancelMrSpeedyOrder(
+          const mrspeedyOrderData = await cancelMrSpeedyOrder(
             mrspeedyBookingData.order.order_id
           );
+          functions.logger.log(mrspeedyOrderData);
+          const { is_successful, order } = mrspeedyOrderData;
 
           if (is_successful) {
             return await db
@@ -207,7 +210,7 @@ exports.cancelMrSpeedyOrder = functions
                 };
               });
           } else {
-            throw new Error("Error: Failed to cancel Mr. Speedy booking");
+            throw new Error("Failed to cancel Mr. Speedy booking");
           }
         });
       });
