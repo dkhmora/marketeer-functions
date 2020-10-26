@@ -226,17 +226,12 @@ exports.changeOrderStatus = functions
                   points: finalPoints,
                   insurance_amount: subTotal.toFixed(2),
                   is_motobox_required: vehicleType === 8 ? motobox : false,
-                  payment_method: paymentMethod !== "COD" ? "non-cash" : "cash",
+                  payment_method: paymentMethod !== "COD" ? "non_cash" : "cash",
                   total_weight_kg: vehicleType === 8 ? orderWeight : 0,
                   vehicle_type_id: vehicleType,
                 }).then((mrspeedyBookingData) => {
                   functions.logger.log(mrspeedyBookingData);
                   if (!mrspeedyBookingData.is_successful) {
-                    functions.logger.log(
-                      mrspeedyBookingData.parameter_errors.points[0],
-                      mrspeedyBookingData.parameter_errors.points[1]
-                    );
-
                     throw new Error(
                       "Error: Something went wrong with booking Mr. Speedy."
                     );

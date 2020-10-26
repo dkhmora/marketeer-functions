@@ -2,6 +2,7 @@ const {
   getOrderPriceEstimate,
   getMrSpeedyCourierInfo,
   getMrSpeedyCallbackSecretKey,
+  cancelMrSpeedyOrder,
 } = require("./util/mrspeedy");
 const functions = require("firebase-functions");
 const { db } = require("./util/admin");
@@ -17,7 +18,12 @@ exports.getUserMrSpeedyDeliveryPriceEstimate = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
     const { deliveryLocation, deliveryAddress } = data;
-    const { uid } = context.auth;
+    const { uid, token } = context.auth;
+    const { phone_number } = token;
+
+    if (!phone_number) {
+      return { s: 500, m: "Error: User is not authorized for this action" };
+    }
 
     const cartStores = (
       await db.collection("user_carts").doc(uid).get()
@@ -96,6 +102,10 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
       paymentMethod,
     } = data;
 
+    if (!context.auth.token.storeIds) {
+      return { s: 500, m: "Error: User is not authorized for this action" };
+    }
+
     try {
       const points = [
         {
@@ -129,25 +139,78 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
 exports.getMrSpeedyCourierInfo = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {
-    const { orderId, clientOrderId } = data;
+    const { mrspeedyOrderId } = data;
+
+    if (!context.auth.token.storeIds) {
+      return { s: 500, m: "Error: User is not authorized for this action" };
+    }
 
     try {
       const { is_successful, courier } = await getMrSpeedyCourierInfo({
-        orderId,
+        mrspeedyOrderId,
       });
 
       if (is_successful) {
-        await db.collection("orders").doc(clientOrderId).set(
-          {
-            mrspeedyBookingData: { courier },
-          },
-          { merge: true }
-        );
+        return { s: 200, d: courier };
       } else {
         throw new Error("Failed to get courier data");
       }
+    } catch (e) {
+      functions.logger.error(e);
+      return { s: 500, m: "Error: Something went wrong" };
+    }
+  });
 
-      return await getMrSpeedyCourierInfo({ orderId });
+exports.cancelMrSpeedyOrder = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { orderId } = data;
+
+    if (!context.auth.token.storeIds) {
+      return { s: 500, m: "Error: User is not authorized for this action" };
+    }
+
+    try {
+      const orderDoc = db.collection("orders").doc(orderId);
+
+      return await db.runTransaction(async (transaction) => {
+        return await transaction.get(orderDoc).then(async (document) => {
+          const { storeId, mrspeedyBookingData } = document.data();
+
+          if (
+            !context.auth.token.storeIds[storeId] ||
+            !context.auth.token.storeIds[storeId].includes("admin") ||
+            !context.auth.token.storeIds[storeId].includes("manager") ||
+            !context.auth.token.storeIds[storeId].includes("cashier")
+          ) {
+            throw new Error("Error: User is not authorized for this action");
+          }
+
+          const { is_successful, order } = await cancelMrSpeedyOrder(
+            mrspeedyBookingData.order.order_id
+          );
+
+          if (is_successful) {
+            return await db
+              .collection("orders")
+              .doc(orderId)
+              .set(
+                {
+                  mrspeedyBookingData: { order },
+                },
+                { merge: true }
+              )
+              .then(() => {
+                return {
+                  s: 200,
+                  m: "Successfully cancelled Mr. Speedy booking",
+                };
+              });
+          } else {
+            throw new Error("Error: Failed to cancel Mr. Speedy booking");
+          }
+        });
+      });
     } catch (e) {
       functions.logger.error(e);
       return { s: 500, m: "Error: Something went wrong" };
@@ -193,7 +256,7 @@ exports.mrspeedyNotification = async (req, res) => {
           { merge: true }
         )
         .then(async () => {
-          if (order.status === "active") {
+          if (order.status === "completed") {
             const orderDoc = db.collection("orders").doc(orderId);
             const { merchantId, subTotal, deliveryFee, deliveryDiscount } = (
               await orderDoc.get()

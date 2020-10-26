@@ -3,6 +3,7 @@ const firebase = require("firebase");
 const { firestore, auth } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 const { HERE_API_KEY } = require("./util/config");
+const { payment_methods } = require("./util/dragonpay");
 
 exports.getAddressFromCoordinates = functions
   .region("asia-northeast1")
@@ -219,9 +220,17 @@ exports.placeOrder = functions
                   }
 
                   if (
-                    !storeDetails.availablePaymentMethods[deliveryMethod] ||
-                    !storeDetails.availablePaymentMethods[deliveryMethod]
-                      .activated
+                    (paymentMethod === "COD" &&
+                      (!storeDetails.availablePaymentMethods[paymentMethod] ||
+                        !storeDetails.availablePaymentMethods[paymentMethod]
+                          .activated)) ||
+                    (paymentMethod !== "COD" &&
+                      (!storeDetails.availablePaymentMethods[
+                        "Online Banking"
+                      ] ||
+                        !storeDetails.availablePaymentMethods["Online Banking"]
+                          .activated ||
+                        !payment_methods[paymentMethod]))
                   ) {
                     throw new Error(
                       `Sorry, ${storeDetails.storeName} currently does not support the payment method ${paymentMethod}. Please try ordering again.`

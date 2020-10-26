@@ -91,7 +91,7 @@ const placeMrSpeedyOrder = async ({
   });
 };
 
-const cancelMrSpeedyOrder = async ({ orderId }) => {
+const cancelMrSpeedyOrder = async (orderId) => {
   return fetch(`${BASE_URL}/cancel-order`, {
     method: "post",
     body: JSON.stringify({
@@ -105,7 +105,7 @@ const cancelMrSpeedyOrder = async ({ orderId }) => {
   });
 };
 
-const getMrSpeedyCourierInfo = async ({ orderId }) => {
+const getMrSpeedyCourierInfo = async (orderId) => {
   return fetch(`${BASE_URL}/courier`, {
     method: "get",
     body: JSON.stringify({

@@ -47,10 +47,11 @@ const {
 const { returnOrderPayments } = require("./miscellaneous");
 const { sendDisbursementInvoicePdfs } = require("./pdf_services");
 const {
-  getMrSpeedyDeliveryPriceEstimate,
   getMerchantMrSpeedyDeliveryPriceEstimate,
   mrspeedyNotification,
   getMrSpeedyCourierInfo,
+  cancelMrSpeedyOrder,
+  getUserMrSpeedyDeliveryPriceEstimate,
 } = require("./mrspeedy_services");
 
 firebase.initializeApp({
@@ -62,9 +63,10 @@ if (DEV_MODE) {
   app.post("/returnOrderPayments", returnOrderPayments);
 
   // Mr. Speedy Services
-  exports.getMrSpeedyDeliveryPriceEstimate = getMrSpeedyDeliveryPriceEstimate;
+  exports.getUserMrSpeedyDeliveryPriceEstimate = getUserMrSpeedyDeliveryPriceEstimate;
   exports.getMerchantMrSpeedyDeliveryPriceEstimate = getMerchantMrSpeedyDeliveryPriceEstimate;
   exports.getMrSpeedyCourierInfo = getMrSpeedyCourierInfo;
+  exports.cancelMrSpeedyOrder = cancelMrSpeedyOrder;
 
   // Payout Postback/Callback URLs
   app.post("/payout/checkPayout", checkPayout);

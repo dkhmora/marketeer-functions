@@ -245,7 +245,9 @@ exports.setUserAsMerchant = functions
               return err;
             }
 
-            return storeRef.update({ merchantId: userId });
+            return storeRef.update({
+              merchantId: userId,
+            });
           })
           .then((err) => {
             if (err) {
