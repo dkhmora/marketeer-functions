@@ -62,21 +62,8 @@ firebase.initializeApp({
 if (DEV_MODE) {
   app.post("/returnOrderPayments", returnOrderPayments);
 
-  // Mr. Speedy Services
-  exports.getUserMrSpeedyDeliveryPriceEstimate = getUserMrSpeedyDeliveryPriceEstimate;
-  exports.getMerchantMrSpeedyDeliveryPriceEstimate = getMerchantMrSpeedyDeliveryPriceEstimate;
-  exports.getMrSpeedyCourierInfo = getMrSpeedyCourierInfo;
-  exports.cancelMrSpeedyOrder = cancelMrSpeedyOrder;
-
   // Payout Postback/Callback URLs
   app.post("/payout/checkPayout", checkPayout);
-
-  // Mr. Speedy Callback
-  mrspeedyApp.post("/order/update", mrspeedyNotification);
-
-  exports.mrspeedy = functions
-    .region("asia-northeast1")
-    .https.onRequest(mrspeedyApp);
 }
 
 // Dragonpay Services
@@ -130,3 +117,15 @@ exports.cancelOrder = cancelOrder;
 exports.addReview = addReview;
 exports.sendMessageNotification = sendMessageNotification;
 exports.createAccountDocument = createAccountDocument;
+
+// Mr. Speedy Services
+exports.getUserMrSpeedyDeliveryPriceEstimate = getUserMrSpeedyDeliveryPriceEstimate;
+exports.getMerchantMrSpeedyDeliveryPriceEstimate = getMerchantMrSpeedyDeliveryPriceEstimate;
+exports.getMrSpeedyCourierInfo = getMrSpeedyCourierInfo;
+exports.cancelMrSpeedyOrder = cancelMrSpeedyOrder;
+
+mrspeedyApp.post("/order/update", mrspeedyNotification);
+
+exports.mrspeedy = functions
+  .region("asia-northeast1")
+  .https.onRequest(mrspeedyApp);
