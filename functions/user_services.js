@@ -4,6 +4,7 @@ const { firestore, auth } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 const { HERE_API_KEY } = require("./util/config");
 const { payment_methods } = require("./util/dragonpay");
+const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
 
 exports.getAddressFromCoordinates = functions
   .region("asia-northeast1")
@@ -363,6 +364,32 @@ exports.placeOrder = functions
                   ) {
                     orderDetails.processId = paymentMethod;
                     orderDetails.paymentMethod = "Online Banking";
+                  }
+
+                  if (deliveryMethod === "Mr. Speedy") {
+                    const points = [
+                      {
+                        address: storeDetails.address,
+                        ...storeDetails.storeLocation,
+                      },
+                      {
+                        address: deliveryAddress,
+                        latitude: deliveryCoordinates.latitude,
+                        longitude: deliveryCoordinates.longitude,
+                      },
+                    ];
+
+                    orderDetails.mrspeedyBookingData = {
+                      estimatedOrderPrices: await getOrderPriceEstimateRange({
+                        points,
+                        subTotal,
+                      }),
+                    };
+
+                    if (paymentMethod === "COD") {
+                      orderDetails.mrspeedyBookingData.estimatedOrderPrices.motorbike += 30;
+                      orderDetails.mrspeedyBookingData.estimatedOrderPrices.car += 30;
+                    }
                   }
 
                   const ordersRef = firestore().collection("orders");

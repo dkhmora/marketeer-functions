@@ -58,8 +58,34 @@ const getOrderPriceEstimate = async ({
     })
     .then((json) => {
       functions.logger.log(json);
-      return json.order.payment_amount;
+      if (json.is_successful) {
+        return json.order.payment_amount;
+      }
+      return null;
     });
+};
+
+const getOrderPriceEstimateRange = async ({ points, subTotal }) => {
+  const motorbikeEstimate = await getOrderPriceEstimate({
+    points,
+    insurance_amount: subTotal.toFixed(2),
+    motorbike: true,
+  });
+  const carEstimate = await getOrderPriceEstimate({
+    points,
+    insurance_amount: subTotal.toFixed(2),
+    motorbike: false,
+  });
+
+  functions.logger.log({
+    motorbike: Number(motorbikeEstimate),
+    car: Number(carEstimate),
+  });
+
+  return {
+    motorbike: Number(motorbikeEstimate),
+    car: Number(carEstimate),
+  };
 };
 
 const placeMrSpeedyOrder = async ({
@@ -123,4 +149,5 @@ module.exports = {
   placeMrSpeedyOrder,
   cancelMrSpeedyOrder,
   getMrSpeedyCourierInfo,
+  getOrderPriceEstimateRange,
 };

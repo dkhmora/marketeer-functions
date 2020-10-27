@@ -3,6 +3,7 @@ const {
   getMrSpeedyCourierInfo,
   getMrSpeedyCallbackSecretKey,
   cancelMrSpeedyOrder,
+  getOrderPriceEstimateRange,
 } = require("./util/mrspeedy");
 const functions = require("firebase-functions");
 const { db } = require("./util/admin");
@@ -57,24 +58,13 @@ exports.getUserMrSpeedyDeliveryPriceEstimate = functions
             },
           ];
 
-          functions.logger.log(subTotal, subTotal.toFixed(2));
-
           if (deliveryMethods.includes("Mr. Speedy")) {
-            const motorbikeEstimate = await getOrderPriceEstimate({
+            const estimate = await getOrderPriceEstimateRange({
               points,
-              insurance_amount: subTotal.toFixed(2),
-              motorbike: true,
-            });
-            const carEstimate = await getOrderPriceEstimate({
-              points,
-              insurance_amount: subTotal.toFixed(2),
-              motorbike: false,
+              subTotal,
             });
 
-            storeDeliveryFees[storeId] = {
-              motorbike: Number(motorbikeEstimate),
-              car: Number(carEstimate),
-            };
+            storeDeliveryFees[storeId] = estimate;
           }
 
           return null;
@@ -190,7 +180,7 @@ exports.cancelMrSpeedyOrder = functions
           const mrspeedyOrderData = await cancelMrSpeedyOrder(
             mrspeedyBookingData.order.order_id
           );
-          functions.logger.log(mrspeedyOrderData);
+
           const { is_successful, order } = mrspeedyOrderData;
 
           if (is_successful) {
@@ -239,7 +229,6 @@ exports.mrspeedyNotification = async (req, res) => {
 
     const { order, event_type, event_datetime } = body;
 
-    functions.logger.log(order);
     const { points } = order;
     const orderId = points[1].client_order_id;
     const timestamp = await getCurrentTimestamp();
@@ -274,8 +263,6 @@ exports.mrspeedyNotification = async (req, res) => {
               .doc(merchantId)
               .collection("disbursement_periods")
               .doc(period);
-
-            functions.logger.log(subTotal, deliveryFee);
 
             return await merchantInvoiceDoc.set(
               {
