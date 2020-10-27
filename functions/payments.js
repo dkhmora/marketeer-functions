@@ -320,6 +320,7 @@ exports.checkPayment = async (req, res) => {
                     updatedAt: timestamp,
                   },
                 },
+                paymentLink: null,
                 updatedAt: timestamp,
               },
               { merge: true }
