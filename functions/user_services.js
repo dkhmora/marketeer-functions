@@ -248,8 +248,11 @@ exports.placeOrder = functions
                   }
 
                   await orderItems.map((orderItem) => {
+                    const itemPrice = orderItem.discountedPrice
+                      ? orderItem.discountedPrice
+                      : orderItem.price;
                     quantity = orderItem.quantity + quantity;
-                    subTotal = orderItem.price * orderItem.quantity + subTotal;
+                    subTotal = itemPrice * orderItem.quantity + subTotal;
 
                     const currentStoreItemIndex = currentStoreItems.findIndex(
                       (storeItem) => storeItem.itemId === orderItem.itemId
