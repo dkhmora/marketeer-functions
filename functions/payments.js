@@ -9,6 +9,7 @@ const moment = require("moment");
 const {
   getDragonPaySecretKey,
   requestPayment,
+  requestPaymentOperation,
   payment_methods,
 } = require("./util/dragonpay");
 const { DEV_MODE } = require("./util/config");
@@ -181,6 +182,13 @@ exports.getMerchantTopUpPaymentLink = functions
         return { s: 400, m: err.message };
       });
   });
+
+exports.editTransaction = async ({ operation, txnId }) => {
+  const operationLink = (await requestPaymentOperation({ operation, txnId }))
+    .url;
+
+  return await fetch(operationLink);
+};
 
 exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
   const {

@@ -5,6 +5,7 @@ const { db, admin } = require("./util/admin");
 const { HERE_API_KEY } = require("./util/config");
 const { payment_methods } = require("./util/dragonpay");
 const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
+const { editTransaction } = require("./payments");
 
 exports.getAddressFromCoordinates = functions
   .region("asia-northeast1")
@@ -521,7 +522,7 @@ exports.cancelOrder = functions
         .runTransaction(async (transaction) => {
           const orderRef = db.collection("orders").doc(orderId);
 
-          return await transaction.get(orderRef).then((document) => {
+          return await transaction.get(orderRef).then(async (document) => {
             const orderData = document.data();
             const { storeId } = orderData;
 
@@ -554,6 +555,7 @@ exports.cancelOrder = functions
               merchantOrderNumber,
               storeOrderNumber,
               userOrderNumber,
+              paymentLink,
             } = orderData;
 
             let newOrderStatus = {};
@@ -583,18 +585,23 @@ exports.cancelOrder = functions
 
             newOrderStatus[`${currentStatus}`].status = false;
 
-            const nowTimestamp = firestore.Timestamp.now().toMillis();
+            const timestamp = firestore.Timestamp.now().toMillis();
 
             newOrderStatus.cancelled = {
               status: true,
               reason: cancelReason,
               byShopper: storeIds ? false : true,
-              updatedAt: nowTimestamp,
+              updatedAt: timestamp,
             };
+
+            if (paymentLink) {
+              await editTransaction({ operation: "VOID", txnId: orderId });
+            }
 
             transaction.update(orderRef, {
               orderStatus: newOrderStatus,
-              updatedAt: nowTimestamp,
+              paymentLink: null,
+              updatedAt: timestamp,
             });
 
             return { orderData };

@@ -432,16 +432,10 @@ exports.changeOrderStatus = functions
             let type = "";
 
             if (nextStatus === "unpaid") {
-              if (paymentMethod === "Online Payment") {
-                notificationTitle = "Your order has been confirmed!";
-                notificationBody = `Order #${userOrderNumber} is now waiting for your payment. Pay for your order now by contacting ${storeName} through the Marketeer chat screen.`;
-                type = "order_update";
-              }
-
               if (paymentMethod === "Online Banking") {
                 notificationTitle = "Your order has been confirmed!";
                 notificationBody = `Order #${userOrderNumber} is now waiting for your payment. Pay for your order now by visiting the orders page or by pressing here.`;
-                type = "order_update";
+                type = "order_awaiting_payment";
               }
             }
 
