@@ -5,12 +5,9 @@ const fetch = require("node-fetch");
 const { db } = require("./admin");
 const { SECRET_PROJECT_ID, DEV_MODE } = require("./config");
 
-/* UNCOMMENT WHEN PRODUCTION READY
 const BASE_URL = DEV_MODE
   ? "https://robotapitest.mrspeedy.ph/api/business/1.1"
   : "https://robot.mrspeedy.ph/api/business/1.1";
-*/
-const BASE_URL = "https://robotapitest.mrspeedy.ph/api/business/1.1";
 
 const getMrSpeedySecretKey = async () => {
   const [accessResponse] = await client.accessSecretVersion({
@@ -91,17 +88,21 @@ const getOrderPriceEstimateRange = async ({ points, subTotal }) => {
 const placeMrSpeedyOrder = async ({
   matter,
   points,
+  backpayment_details,
   insurance_amount,
   is_motobox_required,
   payment_method,
   total_weight_kg,
   vehicle_type_id,
 }) => {
+  functions.logger.log(backpayment_details);
+
   return fetch(`${BASE_URL}/create-order`, {
     method: "post",
     body: JSON.stringify({
       matter,
       points,
+      backpayment_details,
       insurance_amount,
       is_motobox_required,
       payment_method,

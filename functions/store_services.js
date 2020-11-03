@@ -271,9 +271,11 @@ exports.changeOrderStatus = functions
                     totalDeliveryFee,
                     Number(totalDeliveryFee)
                   );
-                  const takingAmount = (
-                    subTotal + Number(totalDeliveryFee)
-                  ).toFixed(2);
+                  let takingAmount =
+                    paymentMethod === "COD"
+                      ? (subTotal + Number(totalDeliveryFee)).toFixed(2)
+                      : "0.00";
+
                   functions.logger.log(takingAmount);
 
                   const finalPoints = [
@@ -287,8 +289,7 @@ exports.changeOrderStatus = functions
                     },
                     {
                       address: deliveryAddress,
-                      taking_amount:
-                        paymentMethod !== "COD" ? "0.00" : takingAmount,
+                      taking_amount: takingAmount,
                       latitude,
                       longitude,
                       contact_person: {
@@ -301,14 +302,20 @@ exports.changeOrderStatus = functions
                     },
                   ];
 
+                  const backpayment_details = `Please send payment of ₱${subTotal.toFixed(
+                    2
+                  )} using GCASH to: +639175690965`;
+
                   // eslint-disable-next-line promise/no-nesting
                   await placeMrSpeedyOrder({
                     matter,
                     points: finalPoints,
+                    backpayment_details:
+                      paymentMethod === "COD" ? backpayment_details : null,
                     insurance_amount: subTotal.toFixed(2),
                     is_motobox_required: vehicleType === 8 ? motobox : false,
                     payment_method:
-                      paymentMethod !== "COD" ? "non_cash" : "cash",
+                      paymentMethod === "COD" ? "cash" : "non_cash",
                     total_weight_kg: vehicleType === 8 ? orderWeight : 0,
                     vehicle_type_id: vehicleType,
                   }).then((bookingResult) => {

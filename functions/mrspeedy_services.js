@@ -229,28 +229,41 @@ exports.mrspeedyNotification = async (req, res) => {
 
     const { order, event_type, event_datetime } = body;
 
+    functions.logger.log(body);
+
     const { points } = order;
     const orderId = points[1].client_order_id;
     const timestamp = await getCurrentTimestamp();
 
     if (event_type === "order_changed" && points.length > 0) {
+      let orderDocUpdateData = {
+        mrspeedyBookingData: {
+          order,
+          updatedAt: timestamp,
+        },
+        updatedAt: timestamp,
+      };
+
+      if (order.status === "completed") {
+        orderDocUpdateData.orderStatus = {
+          shipped: {
+            status: false,
+          },
+          completed: {
+            status: true,
+            updatedAt: timestamp,
+          },
+        };
+      }
+
       return await db
         .collection("orders")
         .doc(orderId)
-        .set(
-          {
-            mrspeedyBookingData: {
-              order,
-              updatedAt: timestamp,
-            },
-            updatedAt: timestamp,
-          },
-          { merge: true }
-        )
+        .set(orderDocUpdateData, { merge: true })
         .then(async () => {
           if (order.status === "completed") {
             const orderDoc = db.collection("orders").doc(orderId);
-            const { merchantId, subTotal, deliveryFee, deliveryDiscount } = (
+            const { merchantId, subTotal, deliveryPrice, deliveryDiscount } = (
               await orderDoc.get()
             ).data();
             const {
@@ -263,7 +276,17 @@ exports.mrspeedyNotification = async (req, res) => {
               .doc(merchantId)
               .collection("disbursement_periods")
               .doc(period);
+            const merchantInvoiceData = (await merchantInvoiceDoc.get()).data();
 
+            if (
+              merchantInvoiceData &&
+              merchantInvoiceData.mrspeedy &&
+              merchantInvoiceData.mrspeedy.lastIncrementedOrderId === orderId
+            ) {
+              return functions.logger.warn("Order ID already incremented");
+            }
+
+            // eslint-disable-next-line promise/no-nesting
             return await merchantInvoiceDoc.set(
               {
                 startDate: moment(weekStart, "MMDDYYYY").format("MM-DD-YYYY"),
@@ -271,10 +294,13 @@ exports.mrspeedyNotification = async (req, res) => {
                 mrspeedy: {
                   transactionCount: firestore.FieldValue.increment(1),
                   totalAmount: firestore.FieldValue.increment(subTotal),
-                  totalDeliveryFee: firestore.FieldValue.increment(deliveryFee),
+                  totalDeliveryPrice: firestore.FieldValue.increment(
+                    deliveryPrice
+                  ),
                   totalDeliveryDiscount: firestore.FieldValue.increment(
                     deliveryDiscount ? deliveryDiscount : 0
                   ),
+                  lastIncrementedOrderId: orderId,
                   updatedAt: timestamp,
                 },
                 status: "Pending",
