@@ -227,15 +227,16 @@ exports.mrspeedyNotification = async (req, res) => {
       throw new Error("Error: Digest mismatch");
     }
 
-    const { order, event_type, event_datetime } = body;
+    const { order, delivery, event_type, event_datetime } = body;
 
     functions.logger.log(body);
 
-    const { points } = order;
-    const orderId = points[1].client_order_id;
     const timestamp = await getCurrentTimestamp();
 
-    if (event_type === "order_changed" && points.length > 0) {
+    if (event_type === "order_changed" && order) {
+      const { points } = order;
+      const orderId = points[1].client_order_id;
+
       let orderDocUpdateData = {
         mrspeedyBookingData: {
           order,
@@ -315,6 +316,8 @@ exports.mrspeedyNotification = async (req, res) => {
         .then(() => {
           return res.status(200).send("OK");
         });
+    } else {
+      return res.status(200).send("OK");
     }
   } catch (e) {
     functions.logger.error(e);
