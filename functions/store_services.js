@@ -302,9 +302,7 @@ exports.changeOrderStatus = functions
                     },
                   ];
 
-                  const backpayment_details = `Please send payment of ₱${subTotal.toFixed(
-                    2
-                  )} using GCASH to: +639175690965`;
+                  const backpayment_details = `Please send payment of ₱${takingAmount} using GCASH to: +639175690965`;
 
                   // eslint-disable-next-line promise/no-nesting
                   await placeMrSpeedyOrder({
@@ -314,8 +312,7 @@ exports.changeOrderStatus = functions
                       paymentMethod === "COD" ? backpayment_details : null,
                     insurance_amount: subTotal.toFixed(2),
                     is_motobox_required: vehicleType === 8 ? motobox : false,
-                    payment_method:
-                      paymentMethod === "COD" ? "cash" : "non_cash",
+                    payment_method: "non_cash",
                     total_weight_kg: vehicleType === 8 ? orderWeight : 0,
                     vehicle_type_id: vehicleType,
                   }).then((bookingResult) => {

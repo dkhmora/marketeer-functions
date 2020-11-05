@@ -44,7 +44,7 @@ const getOrderPriceEstimate = async ({
       insurance_amount,
       vehicle_type_id: motorbike ? 8 : 7,
       total_weight_kg: orderWeight ? orderWeight : 0,
-      payment_method: paymentMethod === "COD" ? "cash" : "non_cash",
+      payment_method: "non_cash",
     }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
@@ -95,7 +95,17 @@ const placeMrSpeedyOrder = async ({
   total_weight_kg,
   vehicle_type_id,
 }) => {
-  functions.logger.log(backpayment_details);
+  functions.logger.log(
+    "PLACE MR. SPEEDY ORDER",
+    matter,
+    points,
+    backpayment_details,
+    insurance_amount,
+    is_motobox_required,
+    payment_method,
+    total_weight_kg,
+    vehicle_type_id
+  );
 
   return fetch(`${BASE_URL}/create-order`, {
     method: "post",
