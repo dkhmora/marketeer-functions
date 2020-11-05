@@ -316,7 +316,10 @@ exports.changeOrderStatus = functions
                     total_weight_kg: vehicleType === 8 ? orderWeight : 0,
                     vehicle_type_id: vehicleType,
                   }).then((bookingResult) => {
-                    functions.logger.log(bookingResult);
+                    functions.logger.log(
+                      "placeMrSpeedyOrder RESULT",
+                      bookingResult
+                    );
                     if (!bookingResult.is_successful) {
                       throw new Error(
                         "Error: Something went wrong with booking Mr. Speedy."
@@ -325,7 +328,11 @@ exports.changeOrderStatus = functions
 
                     mrspeedyMessage =
                       "Successfully placed Mr. Speedy Booking! Please wait for the courier to arrive.";
-                    orderUpdateData.mrspeedyBookingData = bookingResult;
+
+                    orderUpdateData.mrspeedyBookingData = {
+                      preBookingData: finalBookingData,
+                      ...bookingResult,
+                    };
                     orderUpdateData.deliveryPrice = Number(totalDeliveryFee);
 
                     return null;

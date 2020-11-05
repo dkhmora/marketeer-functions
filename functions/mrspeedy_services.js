@@ -152,6 +152,183 @@ exports.getMrSpeedyCourierInfo = functions
     }
   });
 
+exports.rebookMrSpeedyBooking = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const { mrspeedyRebookingData, orderId } = data;
+
+    if (!context.auth.token.storeIds) {
+      return { s: 500, m: "Error: User is not authorized for this action" };
+    }
+
+    try {
+      const orderRef = db.collection("orders").doc(orderId);
+      const orderData = (await orderRef.get()).data();
+      const {
+        mrspeedyBookingData,
+        subTotal,
+        deliveryMethod,
+        paymentMethod,
+        deliveryPrice,
+        userPhoneNumber,
+        deliveryAddress,
+        userName,
+        deliveryCoordinates,
+        storeId,
+      } = orderData;
+
+      let finalBookingData = mrspeedyBookingData.preBookingData;
+
+      if (mrspeedyRebookingData) {
+        finalBookingData = mrspeedyRebookingData;
+
+        if (
+          mrspeedyBookingData.order &&
+          mrspeedyBookingData.order.status !== "canceled"
+        ) {
+          throw new Error(
+            "The Mr. Speedy Booking is still currently active. Please try again."
+          );
+        }
+      }
+
+      if (
+        !finalBookingData ||
+        !finalBookingData.vehicleType ||
+        finalBookingData.motobox === undefined ||
+        !finalBookingData.orderWeight ||
+        !finalBookingData.storePhoneNumber
+      ) {
+        throw new Error(
+          "Incomplete details provided for Mr. Speedy Booking. Please try again."
+        );
+      }
+
+      if (
+        finalBookingData.vehicleType !== 8 &&
+        finalBookingData.vehicleType !== 7
+      ) {
+        throw new Error(
+          "Error: Invalid details provided for Mr. Speedy Booking. Please try again."
+        );
+      }
+
+      const storeRef = db.collection("stores").doc(storeId);
+      const storeData = (await storeRef.get()).data();
+      const { storeLocation, address } = storeData;
+
+      const {
+        vehicleType,
+        motobox,
+        orderWeight,
+        storePhoneNumber,
+      } = finalBookingData;
+      const matter = `${userName}'s order from ${storeName} via Marketeer`;
+      const { latitude, longitude } = deliveryCoordinates;
+      const esimationPoints = [
+        {
+          address,
+          ...storeLocation,
+        },
+        {
+          address: deliveryAddress,
+          latitude,
+          longitude,
+          client_order_id: orderId,
+          taking_amount: paymentMethod !== "COD" ? "0.00" : "1.00",
+          is_order_payment_here: paymentMethod === "COD",
+          is_cod_cash_voucher_required: paymentMethod === "COD",
+        },
+      ];
+
+      const totalDeliveryFee = await getOrderPriceEstimate({
+        points: esimationPoints,
+        insurance_amount: subTotal.toFixed(2),
+        motorbike: vehicleType === 8,
+        orderWeight: vehicleType === 8 ? orderWeight : 0,
+        paymentMethod,
+      });
+
+      functions.logger.log(
+        subTotal,
+        totalDeliveryFee,
+        Number(totalDeliveryFee)
+      );
+      let takingAmount =
+        paymentMethod === "COD"
+          ? (subTotal + Number(totalDeliveryFee)).toFixed(2)
+          : "0.00";
+
+      functions.logger.log(takingAmount);
+
+      const finalPoints = [
+        {
+          address,
+          ...storeLocation,
+          contact_person: {
+            phone: storePhoneNumber,
+            name: storeName,
+          },
+        },
+        {
+          address: deliveryAddress,
+          taking_amount: takingAmount,
+          latitude,
+          longitude,
+          contact_person: {
+            phone: userPhoneNumber,
+            name: userName,
+          },
+          client_order_id: orderId,
+          is_cod_cash_voucher_required: paymentMethod === "COD",
+          is_order_payment_here: paymentMethod === "COD",
+        },
+      ];
+
+      const backpayment_details = `Please send payment of ₱${takingAmount} using GCASH to: +639175690965`;
+
+      // eslint-disable-next-line promise/no-nesting
+      return await placeMrSpeedyOrder({
+        matter,
+        points: finalPoints,
+        backpayment_details:
+          paymentMethod === "COD" ? backpayment_details : null,
+        insurance_amount: subTotal.toFixed(2),
+        is_motobox_required: vehicleType === 8 ? motobox : false,
+        payment_method: "non_cash",
+        total_weight_kg: vehicleType === 8 ? orderWeight : 0,
+        vehicle_type_id: vehicleType,
+      }).then((bookingResult) => {
+        functions.logger.log("placeMrSpeedyOrder RESULT", bookingResult);
+        if (!bookingResult.is_successful) {
+          throw new Error(
+            "Error: Something went wrong with booking Mr. Speedy."
+          );
+        }
+
+        orderRef.set(
+          {
+            mrspeedyBookingData: {
+              preBookingData: finalBookingData,
+              ...bookingResult,
+            },
+            deliveryPrice: Number(totalDeliveryFee),
+          },
+          { merge: true }
+        );
+
+        return {
+          s: 200,
+          m:
+            "Successfully placed Mr. Speedy Booking! Please wait for the courier to arrive.",
+        };
+      });
+    } catch (e) {
+      functions.logger.error(e);
+      return { s: 500, m: e };
+    }
+  });
+
 exports.cancelMrSpeedyOrder = functions
   .region("asia-northeast1")
   .https.onCall(async (data, context) => {

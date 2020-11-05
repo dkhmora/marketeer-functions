@@ -52,6 +52,7 @@ const {
   getMrSpeedyCourierInfo,
   cancelMrSpeedyOrder,
   getUserMrSpeedyDeliveryPriceEstimate,
+  rebookMrSpeedyBooking,
 } = require("./mrspeedy_services");
 
 firebase.initializeApp({
@@ -123,13 +124,13 @@ exports.getUserMrSpeedyDeliveryPriceEstimate = getUserMrSpeedyDeliveryPriceEstim
 exports.getMerchantMrSpeedyDeliveryPriceEstimate = getMerchantMrSpeedyDeliveryPriceEstimate;
 exports.getMrSpeedyCourierInfo = getMrSpeedyCourierInfo;
 exports.cancelMrSpeedyOrder = cancelMrSpeedyOrder;
+exports.rebookMrSpeedyBooking = rebookMrSpeedyBooking;
 
 mrspeedyApp.post("/order/update", mrspeedyNotification);
 
 exports.mrspeedy = functions
   .region("asia-northeast1")
   .https.onRequest(mrspeedyApp);
-
 
 // Mr. Speedy Testing
 exports.placeOrderTest = placeOrder;
