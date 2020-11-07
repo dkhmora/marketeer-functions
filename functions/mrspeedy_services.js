@@ -4,6 +4,7 @@ const {
   getMrSpeedyCallbackSecretKey,
   cancelMrSpeedyOrder,
   getOrderPriceEstimateRange,
+  placeMrSpeedyOrder,
 } = require("./util/mrspeedy");
 const functions = require("firebase-functions");
 const { db } = require("./util/admin");
@@ -131,7 +132,7 @@ exports.getMrSpeedyCourierInfo = functions
   .https.onCall(async (data, context) => {
     const { mrspeedyOrderId } = data;
 
-    if (!context.auth.token.storeIds) {
+    if (!context.auth.token.storeIds && !context.auth.token.phone_number) {
       return { s: 500, m: "Error: User is not authorized for this action" };
     }
 
@@ -175,6 +176,7 @@ exports.rebookMrSpeedyBooking = functions
         userName,
         deliveryCoordinates,
         storeId,
+        storeName,
       } = orderData;
 
       let finalBookingData = mrspeedyBookingData.preBookingData;
@@ -342,48 +344,50 @@ exports.cancelMrSpeedyOrder = functions
       const orderDoc = db.collection("orders").doc(orderId);
 
       return await db.runTransaction(async (transaction) => {
-        return await transaction.get(orderDoc).then(async (document) => {
-          const { storeId, mrspeedyBookingData } = document.data();
+        return await transaction
+          .get(orderDoc)
+          .then(async (document) => {
+            const { storeId, mrspeedyBookingData } = document.data();
 
-          if (
-            !context.auth.token.storeIds[storeId] ||
-            (!context.auth.token.storeIds[storeId].includes("admin") &&
-              !context.auth.token.storeIds[storeId].includes("manager") &&
-              !context.auth.token.storeIds[storeId].includes("cashier"))
-          ) {
-            throw new Error("Error: User is not authorized for this action");
-          }
+            if (
+              !context.auth.token.storeIds[storeId] ||
+              (!context.auth.token.storeIds[storeId].includes("admin") &&
+                !context.auth.token.storeIds[storeId].includes("manager") &&
+                !context.auth.token.storeIds[storeId].includes("cashier"))
+            ) {
+              throw new Error("Error: User is not authorized for this action");
+            }
 
-          const mrspeedyOrderData = await cancelMrSpeedyOrder(
-            mrspeedyBookingData.order.order_id
-          );
+            const mrspeedyOrderData = await cancelMrSpeedyOrder(
+              mrspeedyBookingData.order.order_id
+            );
 
-          const { is_successful, order } = mrspeedyOrderData;
+            functions.logger.log(mrspeedyOrderData);
 
-          if (is_successful) {
-            return await db
-              .collection("orders")
-              .doc(orderId)
-              .set(
+            const { is_successful, order } = mrspeedyOrderData;
+
+            if (is_successful) {
+              return transaction.set(
+                orderDoc,
                 {
                   mrspeedyBookingData: { order },
                 },
                 { merge: true }
-              )
-              .then(() => {
-                return {
-                  s: 200,
-                  m: "Successfully cancelled Mr. Speedy booking",
-                };
-              });
-          } else {
-            throw new Error("Failed to cancel Mr. Speedy booking");
-          }
-        });
+              );
+            } else {
+              throw new Error("Failed to cancel Mr. Speedy booking");
+            }
+          })
+          .then(() => {
+            return {
+              s: 200,
+              m: "Successfully cancelled Mr. Speedy booking",
+            };
+          });
       });
     } catch (e) {
       functions.logger.error(e);
-      return { s: 500, m: "Error: Something went wrong" };
+      return { s: 500, m: e };
     }
   });
 

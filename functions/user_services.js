@@ -357,6 +357,7 @@ exports.placeOrder = functions
                     storeId,
                     merchantId: storeDetails.merchantId,
                     storeName: storeDetails.storeName,
+                    storeLocation: storeDetails.storeLocation,
                     storeOrderNumber: newStoreOrderNumber,
                     merchantOrderNumber: newStoreOrderNumber,
                     userOrderNumber: newUserOrderNumber,

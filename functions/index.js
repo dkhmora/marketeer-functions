@@ -131,8 +131,3 @@ mrspeedyApp.post("/order/update", mrspeedyNotification);
 exports.mrspeedy = functions
   .region("asia-northeast1")
   .https.onRequest(mrspeedyApp);
-
-// Mr. Speedy Testing
-exports.placeOrderTest = placeOrder;
-exports.cancelOrderTest = cancelOrder;
-exports.changeOrderStatusTest = changeOrderStatus;
