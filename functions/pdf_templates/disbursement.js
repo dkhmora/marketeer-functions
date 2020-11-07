@@ -5,13 +5,17 @@ const dd = ({
   companyName,
   companyAddress,
   dateIssued,
-  formattedOrders,
+  transactionFeePercentage,
   totalAmountPayable,
   totalRevenueShare,
-  transactionFeePercentage,
-  totalPaymentProcessorFee,
-  totalAmount,
-  successfulTransactionCount,
+  onlineBanking,
+  onlineBankingTotalRevenueShare,
+  onlineBankingTotalAmountPayable,
+  formattedDragonpayOrders,
+  mrspeedy,
+  mrspeedyTotalRevenueShare,
+  mrspeedyTotalAmountPayable,
+  formattedMrspeedyOrders,
 }) => {
   return {
     pageOrientation: "landscape",
@@ -78,7 +82,7 @@ const dd = ({
                 {
                   columns: [
                     {
-                      text: "Transaction Count",
+                      text: "Online Banking Transaction Count",
                       color: "#aaaaab",
                       bold: true,
                       width: "*",
@@ -86,7 +90,27 @@ const dd = ({
                       alignment: "right",
                     },
                     {
-                      text: successfulTransactionCount,
+                      text: onlineBanking.transactionCount,
+                      bold: true,
+                      color: "#333333",
+                      fontSize: 12,
+                      alignment: "right",
+                      width: 100,
+                    },
+                  ],
+                },
+                {
+                  columns: [
+                    {
+                      text: "Mr. Speedy COD Transaction Count",
+                      color: "#aaaaab",
+                      bold: true,
+                      width: "*",
+                      fontSize: 12,
+                      alignment: "right",
+                    },
+                    {
+                      text: mrspeedy.transactionCount,
                       bold: true,
                       color: "#333333",
                       fontSize: 12,
@@ -195,7 +219,7 @@ const dd = ({
       {
         width: "100%",
         alignment: "center",
-        text: "Orders/Transactions",
+        text: "Online Banking Transactions",
         bold: true,
         margin: [0, 10, 0, 10],
         fontSize: 15,
@@ -270,7 +294,7 @@ const dd = ({
                 textTransform: "uppercase",
               },
               {
-                text: "AMOUNT",
+                text: "ORDER PURCHASE AMOUNT",
                 fontSize: 10,
                 fillColor: "#eaf2f5",
                 border: [false, true, false, true],
@@ -278,7 +302,7 @@ const dd = ({
                 textTransform: "uppercase",
               },
               {
-                text: `${transactionFeePercentage}% REVENUE SHARE`,
+                text: "7% REVENUE SHARE",
                 fontSize: 10,
                 fillColor: "#eaf2f5",
                 border: [false, true, false, true],
@@ -302,7 +326,7 @@ const dd = ({
                 textTransform: "uppercase",
               },
               {
-                text: `AMOUNT LESS PAYMENT PROCESSOR FEE AND ${transactionFeePercentage}% REVENUE SHARE`,
+                text: "AMOUNT PAYABLE LESS PG FEES AND 7% REVENUE SHARE",
                 fontSize: 10,
                 fillColor: "#eaf2f5",
                 border: [false, true, false, true],
@@ -310,7 +334,123 @@ const dd = ({
                 textTransform: "uppercase",
               },
             ],
-            ...formattedOrders, // Insert Orders
+            ...formattedDragonpayOrders, // Insert Orders
+          ],
+        },
+      },
+      {
+        width: "100%",
+        alignment: "center",
+        text: "Mr. Speedy COD Transactions",
+        bold: true,
+        margin: [0, 10, 0, 10],
+        fontSize: 15,
+        pageBreak: "before",
+      },
+      {
+        layout: {
+          defaultBorder: false,
+          hLineWidth: function (i, node) {
+            return 1;
+          },
+          vLineWidth: function (i, node) {
+            return 1;
+          },
+          hLineColor: function (i, node) {
+            if (i === 1 || i === 0) {
+              return "#bfdde8";
+            }
+            return "#eaeaea";
+          },
+          vLineColor: function (i, node) {
+            return "#eaeaea";
+          },
+          hLineStyle: function (i, node) {
+            // if (i === 0 || i === node.table.body.length) {
+            return null;
+            //}
+          },
+          // vLineStyle: function (i, node) { return {dash: { length: 10, space: 4 }}; },
+          paddingLeft: function (i, node) {
+            return 10;
+          },
+          paddingRight: function (i, node) {
+            return 10;
+          },
+          paddingTop: function (i, node) {
+            return 2;
+          },
+          paddingBottom: function (i, node) {
+            return 2;
+          },
+          fillColor: function (rowIndex, node, columnIndex) {
+            return "#fff";
+          },
+        },
+        table: {
+          headerRows: 1,
+          widths: [60, "*", "*", 60, 60, 60, 70],
+          body: [
+            [
+              {
+                text: "DATE",
+                fontSize: 10,
+                fillColor: "#eaf2f5",
+                border: [false, true, false, true],
+                margin: [0, 5, 0, 5],
+                textTransform: "uppercase",
+              },
+              {
+                text: "TRANSACTION/ \n ORDER #",
+                fontSize: 10,
+                fillColor: "#eaf2f5",
+                border: [false, true, false, true],
+                margin: [0, 5, 0, 5],
+                textTransform: "uppercase",
+              },
+              {
+                text: "STORE NAME/BRANCH NAME",
+                fontSize: 10,
+                fillColor: "#eaf2f5",
+                border: [false, true, false, true],
+                margin: [0, 5, 0, 5],
+                textTransform: "uppercase",
+              },
+              {
+                text: "ORDER PURCHASE AMOUNT",
+                fontSize: 10,
+                fillColor: "#eaf2f5",
+                border: [false, true, false, true],
+                margin: [0, 5, 0, 5],
+                textTransform: "uppercase",
+              },
+              {
+                text: "7% REVENUE SHARE",
+                fontSize: 10,
+                fillColor: "#eaf2f5",
+                border: [false, true, false, true],
+                margin: [0, 5, 0, 5],
+                textTransform: "uppercase",
+              },
+              {
+                text: "DELIVERY DISCOUNT",
+                fontSize: 10,
+                fillColor: "#eaf2f5",
+                border: [false, true, false, true],
+                margin: [0, 5, 0, 5],
+                textTransform: "uppercase",
+              },
+              {
+                text:
+                  "AMOUNT PAYABLE LESS DELIVERY DISCOUNT AND 7% REVENUE SHARE",
+                fontSize: 10,
+                fillColor: "#eaf2f5",
+                border: [false, true, false, true],
+                margin: [0, 5, 0, 5],
+                textTransform: "uppercase",
+              },
+            ],
+            ...formattedMrspeedyOrders,
           ],
         },
       },
@@ -359,7 +499,7 @@ const dd = ({
           body: [
             [
               {
-                text: "Total Amount",
+                text: "Online Banking Total Order Purchase Amount",
                 fontSize: 10,
                 border: [false, true, false, true],
                 alignment: "right",
@@ -367,7 +507,7 @@ const dd = ({
               },
               {
                 border: [false, true, false, true],
-                text: `₱${totalAmount}`,
+                text: `₱${onlineBanking.totalAmount}`,
                 fontSize: 10,
                 alignment: "right",
                 fillColor: "#f5f5f5",
@@ -376,14 +516,14 @@ const dd = ({
             ],
             [
               {
-                text: "Total Payment Processor Fee",
+                text: "Payment Processor Fee Total",
                 fontSize: 10,
                 border: [false, false, false, true],
                 alignment: "right",
                 margin: [0, 5, 0, 5],
               },
               {
-                text: `₱${totalPaymentProcessorFee}`,
+                text: `₱${onlineBanking.totalPaymentGatewayFees}`,
                 fontSize: 10,
                 border: [false, false, false, true],
                 fillColor: "#f5f5f5",
@@ -393,7 +533,109 @@ const dd = ({
             ],
             [
               {
-                text: `Total ${transactionFeePercentage}% Revenue Share`,
+                text: `Online Banking ${transactionFeePercentage}% Revenue Share Total`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${onlineBankingTotalRevenueShare}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Online Banking Amount Payable Total",
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${onlineBankingTotalAmountPayable}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Mr. Speedy COD Total Order Purchase Amount",
+                fontSize: 10,
+                border: [false, true, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                border: [false, true, false, true],
+                text: `₱${mrspeedy.totalAmount}`,
+                fontSize: 10,
+                alignment: "right",
+                fillColor: "#f5f5f5",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Mr. Speedy COD Applied Delivery Discount Total",
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${mrspeedy.totalDeliveryDiscount}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: `Mr. Speedy ${transactionFeePercentage}% Revenue Share Total`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${mrspeedyTotalRevenueShare}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Mr. Speedy Amount Payable Total",
+                fontSize: 10,
+                border: [false, false, false, true],
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+              {
+                text: `₱${mrspeedyTotalAmountPayable}`,
+                fontSize: 10,
+                border: [false, false, false, true],
+                fillColor: "#f5f5f5",
+                alignment: "right",
+                margin: [0, 5, 0, 5],
+              },
+            ],
+            [
+              {
+                text: "Revenue Share Total",
                 fontSize: 10,
                 border: [false, false, false, true],
                 alignment: "right",
@@ -410,7 +652,7 @@ const dd = ({
             ],
             [
               {
-                text: "Total Amount Payable",
+                text: "Amount Payable Total",
                 bold: true,
                 fontSize: 12,
                 alignment: "right",

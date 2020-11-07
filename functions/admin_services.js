@@ -1,6 +1,89 @@
 const functions = require("firebase-functions");
 const { firestore } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
+const { getCurrentTimestamp } = require("./helpers/time");
+
+exports.executeNewDeliveryFormat = async (req, res) => {
+  const { headers, body } = req;
+
+  try {
+    if (headers.pass !== "tA7#$WC#fiT&") {
+      throw new Error("Error: Password mismatch");
+    }
+
+    return await db
+      .collection("stores")
+      .get()
+      .then(async (querySnapshot) => {
+        const stores = {};
+
+        await querySnapshot.docs.forEach((document, index) => {
+          stores[document.id] = document.data();
+        });
+
+        return stores;
+      })
+      .then((stores) => {
+        return Object.entries(stores).map(async ([storeId, storeData]) => {
+          const {
+            deliveryMethods,
+            paymentMethods,
+            ownDeliveryServiceFee,
+          } = storeData;
+          const newData = JSON.parse(JSON.stringify(storeData));
+          newData.availableDeliveryMethods = {
+            ["Own Delivery"]: {
+              activated: false,
+              deliveryPrice: ownDeliveryServiceFee
+                ? ownDeliveryServiceFee
+                : null,
+            },
+            ["Mr. Speedy"]: { activated: false },
+          };
+          newData.availablePaymentMethods = {
+            ["COD"]: { activated: false },
+            ["Online Banking"]: { activated: false },
+          };
+          newData.deliveryDiscount = {
+            activated: false,
+            discountAmount: null,
+            minimumOrderAmount: null,
+          };
+
+          if (deliveryMethods) {
+            await deliveryMethods.map((deliveryMethod, index) => {
+              if (newData.availableDeliveryMethods[deliveryMethod]) {
+                newData.availableDeliveryMethods[
+                  deliveryMethod
+                ].activated = true;
+              }
+            });
+          }
+
+          if (paymentMethods) {
+            await paymentMethods.map((paymentMethod, index) => {
+              if (newData.availablePaymentMethods[paymentMethod]) {
+                newData.availablePaymentMethods[paymentMethod].activated = true;
+              }
+            });
+          }
+
+          return db
+            .collection("stores")
+            .doc(storeId)
+            .set(
+              {
+                ...newData,
+                updatedAt: await getCurrentTimestamp(),
+              },
+              { merge: true }
+            );
+        });
+      });
+  } catch (e) {
+    res.status(500).json({ m: e });
+  }
+};
 
 exports.executePayout = functions
   .region("asia-northeast1")
@@ -164,7 +247,9 @@ exports.setUserAsMerchant = functions
               return res;
             }
 
-            return storeRef.update({ merchantId: userId });
+            return storeRef.update({
+              merchantId: userId,
+            });
           })
           .then((res) => {
             if (res.s === 500) {

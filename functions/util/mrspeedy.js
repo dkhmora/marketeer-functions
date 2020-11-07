@@ -1,4 +1,5 @@
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
+const functions = require("firebase-functions");
 const client = new SecretManagerServiceClient();
 const fetch = require("node-fetch");
 const { db } = require("./admin");
@@ -17,13 +18,33 @@ const getMrSpeedySecretKey = async () => {
   return secretKey;
 };
 
-const getOrderPriceEstimate = async ({ points, motorbike }) => {
+const getMrSpeedyCallbackSecretKey = async () => {
+  const [accessResponse] = await client.accessSecretVersion({
+    name: `projects/${SECRET_PROJECT_ID}/secrets/mrspeedy_callback_key/versions/latest`,
+  });
+  const secretKey = accessResponse.payload.data.toString("utf8");
+
+  return secretKey;
+};
+
+const getOrderPriceEstimate = async ({
+  points,
+  insurance_amount,
+  motorbike,
+  orderWeight,
+  paymentMethod,
+}) => {
+  functions.logger.log("insurance", insurance_amount);
+
   return fetch(`${BASE_URL}/calculate-order`, {
     method: "post",
     body: JSON.stringify({
       matter: "Order price estimation",
       points,
+      insurance_amount,
       vehicle_type_id: motorbike ? 8 : 7,
+      total_weight_kg: orderWeight ? orderWeight : 0,
+      payment_method: "non_cash",
     }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
@@ -33,16 +54,71 @@ const getOrderPriceEstimate = async ({ points, motorbike }) => {
       return res.json();
     })
     .then((json) => {
-      return json.order.delivery_fee_amount;
+      functions.logger.log(json);
+      if (json.is_successful) {
+        return json.order.payment_amount;
+      }
+      return null;
     });
 };
 
-const placeMrSpeedyOrder = async ({ points }) => {
+const getOrderPriceEstimateRange = async ({ points, subTotal }) => {
+  const motorbikeEstimate = await getOrderPriceEstimate({
+    points,
+    insurance_amount: subTotal.toFixed(2),
+    motorbike: true,
+  });
+  const carEstimate = await getOrderPriceEstimate({
+    points,
+    insurance_amount: subTotal.toFixed(2),
+    motorbike: false,
+  });
+
+  functions.logger.log({
+    motorbike: Number(motorbikeEstimate),
+    car: Number(carEstimate),
+  });
+
+  return {
+    motorbike: Number(motorbikeEstimate),
+    car: Number(carEstimate),
+  };
+};
+
+const placeMrSpeedyOrder = async ({
+  matter,
+  points,
+  backpayment_details,
+  insurance_amount,
+  is_motobox_required,
+  payment_method,
+  total_weight_kg,
+  vehicle_type_id,
+}) => {
+  functions.logger.log(
+    "PLACE MR. SPEEDY ORDER",
+    matter,
+    points,
+    backpayment_details,
+    insurance_amount,
+    is_motobox_required,
+    payment_method,
+    total_weight_kg,
+    vehicle_type_id
+  );
+
   return fetch(`${BASE_URL}/create-order`, {
     method: "post",
     body: JSON.stringify({
-      matter: "Documents",
+      matter,
       points,
+      backpayment_details,
+      insurance_amount,
+      is_motobox_required,
+      payment_method,
+      total_weight_kg,
+      vehicle_type_id,
+      is_contact_person_notification_enabled: true,
     }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
@@ -52,7 +128,7 @@ const placeMrSpeedyOrder = async ({ points }) => {
   });
 };
 
-const cancelMrSpeedyOrder = async ({ orderId }) => {
+const cancelMrSpeedyOrder = async (orderId) => {
   return fetch(`${BASE_URL}/cancel-order`, {
     method: "post",
     body: JSON.stringify({
@@ -66,12 +142,9 @@ const cancelMrSpeedyOrder = async ({ orderId }) => {
   });
 };
 
-const getMrSpeedyCourierInfo = async ({ orderId }) => {
-  return fetch(`${BASE_URL}/courier`, {
+const getMrSpeedyCourierInfo = async (orderId) => {
+  return fetch(`${BASE_URL}/courier?order_id=${orderId}`, {
     method: "get",
-    body: JSON.stringify({
-      order_id: orderId,
-    }),
     headers: {
       "X-DV-Auth-Token": await getMrSpeedySecretKey(),
     },
@@ -82,8 +155,10 @@ const getMrSpeedyCourierInfo = async ({ orderId }) => {
 
 module.exports = {
   getMrSpeedySecretKey,
+  getMrSpeedyCallbackSecretKey,
   getOrderPriceEstimate,
   placeMrSpeedyOrder,
   cancelMrSpeedyOrder,
   getMrSpeedyCourierInfo,
+  getOrderPriceEstimateRange,
 };

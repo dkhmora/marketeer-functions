@@ -74,35 +74,85 @@ const formatBoldEmphasizedTableItem = (text) => {
 
 const printer = new PdfPrinter(fonts);
 
-const formattedOrder = ({ order, storeName, transactionFeePercentage }) => {
+let onlineBankingTotalAmountPayable = 0;
+let mrspeedyTotalAmountPayable = 0;
+let onlineBankingTotalRevenueShare = 0;
+let mrspeedyTotalRevenueShare = 0;
+
+const formattedDragonpayOrder = ({ order, storeName }) => {
   const {
     paymentGatewayFee,
     updatedAt,
     paymentAmount,
+    deliveryMethod,
+    deliveryPrice,
+    subTotal,
     processId,
     orderId,
+    transactionFee,
   } = order;
   const orderDate = moment(updatedAt, "x").format("MM-DD-YYYY");
-  const revenueShare = paymentAmount * transactionFeePercentage * 0.01;
-  const totalAmountPayable = paymentAmount - revenueShare - paymentGatewayFee;
+  const orderAmount =
+    deliveryMethod === "Own Delivery" ? subTotal + deliveryPrice : subTotal;
+  const amountPayable = orderAmount - transactionFee - paymentGatewayFee;
+  onlineBankingTotalAmountPayable += amountPayable;
+  onlineBankingTotalRevenueShare += transactionFee;
 
   return [
     formatTableItem(orderDate),
     formatTableItem(orderId),
     formatTableItem(storeName),
-    formatTableItem(`₱${paymentAmount}`),
-    formatTableItem(`₱${revenueShare}`),
+    formatTableItem(`₱${orderAmount}`),
+    formatTableItem(`₱${transactionFee}`),
     formatTableItem(processId),
     formatTableItem(`₱${paymentGatewayFee}`),
-    formatEmphasizedTableItem(`₱${totalAmountPayable}`),
+    formatEmphasizedTableItem(`₱${amountPayable}`),
   ];
 };
 
-const formattedOrders = ({ orders, stores, transactionFeePercentage }) => {
-  return orders.map((order) => {
+const getFormattedDragonpayOrders = ({ dragonpayOrders, stores }) => {
+  return dragonpayOrders.map((order) => {
     const storeName = stores[order.storeId].name;
 
-    return formattedOrder({ order, storeName, transactionFeePercentage });
+    return formattedDragonpayOrder({
+      order,
+      storeName,
+    });
+  });
+};
+
+const formattedMrspeedyOrder = ({ order, storeName }) => {
+  const {
+    updatedAt,
+    subTotal,
+    orderId,
+    deliveryDiscount,
+    transactionFee,
+  } = order;
+  const orderDate = moment(updatedAt, "x").format("MM-DD-YYYY");
+  const amountPayable = subTotal - transactionFee - deliveryDiscount;
+  mrspeedyTotalAmountPayable += amountPayable;
+  mrspeedyTotalRevenueShare += transactionFee;
+
+  return [
+    formatTableItem(orderDate),
+    formatTableItem(orderId),
+    formatTableItem(storeName),
+    formatTableItem(`₱${subTotal}`),
+    formatTableItem(`₱${transactionFee}`),
+    formatTableItem(`₱${deliveryDiscount ? deliveryDiscount : "0"}`),
+    formatEmphasizedTableItem(`₱${amountPayable}`),
+  ];
+};
+
+const getFormattedMrspeedyOrders = ({ mrspeedyOrders, stores }) => {
+  return mrspeedyOrders.map((order) => {
+    const storeName = stores[order.storeId].name;
+
+    return formattedMrspeedyOrder({
+      order,
+      storeName,
+    });
   });
 };
 
@@ -116,16 +166,14 @@ exports.createDisbursementInvoicePdf = ({
   companyName,
   companyAddress,
   dateIssued,
-  orders,
+  dragonpayOrders,
+  mrspeedyOrders,
   stores,
   transactionFeePercentage,
-  totalAmountPayable,
-  totalRevenueShare,
-  totalPaymentProcessorFee,
-  totalAmount,
-  successfulTransactionCount,
+  mrspeedy,
+  onlineBanking,
 }) => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const fileRef = admin.storage().bucket().file(`${filePath}${fileName}`);
 
     const pdfDoc = printer.createPdfKitDocument(
@@ -136,17 +184,25 @@ exports.createDisbursementInvoicePdf = ({
         companyName,
         companyAddress,
         dateIssued,
-        formattedOrders: formattedOrders({
-          orders,
-          stores,
-          transactionFeePercentage,
-        }),
-        totalAmountPayable,
-        totalRevenueShare,
         transactionFeePercentage,
-        totalPaymentProcessorFee,
-        totalAmount,
-        successfulTransactionCount,
+        totalAmountPayable:
+          mrspeedyTotalAmountPayable + onlineBankingTotalAmountPayable,
+        totalRevenueShare:
+          mrspeedyTotalRevenueShare + onlineBankingTotalRevenueShare,
+        onlineBanking,
+        onlineBankingTotalRevenueShare,
+        onlineBankingTotalAmountPayable,
+        formattedDragonpayOrders: await getFormattedDragonpayOrders({
+          dragonpayOrders,
+          stores,
+        }),
+        mrspeedy,
+        mrspeedyTotalRevenueShare,
+        mrspeedyTotalAmountPayable,
+        formattedMrspeedyOrders: await getFormattedMrspeedyOrders({
+          mrspeedyOrders,
+          stores,
+        }),
       })
     );
     const fileStream = fileRef.createWriteStream();

@@ -102,8 +102,31 @@ const requestPayment = (secretkey, payload) => {
   return { url };
 };
 
+const requestPaymentOperation = async ({ operation, txnId }) => {
+  const secretKey = await getDragonPaySecretKey();
+  const merchantId = "MARKETEERPH";
+
+  const request = {
+    op: operation,
+    merchantid: merchantId,
+    merchantpwd: secretKey,
+    txnid: txnId,
+  };
+
+  const url = DEV_MODE
+    ? `https://test.dragonpay.ph/MerchantRequest.aspx?${queryString.stringify(
+        request
+      )}`
+    : `https://gw.dragonpay.ph/MerchantRequest.aspx?${queryString.stringify(
+        request
+      )}`;
+
+  return { url };
+};
+
 module.exports = {
   requestPayment,
+  requestPaymentOperation,
   getDragonPaySecretKey,
   getDragonPayApiKey,
   payment_methods,

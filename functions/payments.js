@@ -9,9 +9,14 @@ const moment = require("moment");
 const {
   getDragonPaySecretKey,
   requestPayment,
+  requestPaymentOperation,
   payment_methods,
 } = require("./util/dragonpay");
 const { DEV_MODE } = require("./util/config");
+const {
+  getCurrentWeeklyPeriodFromTimestamp,
+  getCurrentTimestamp,
+} = require("./helpers/time");
 
 exports.getAvailablePaymentProcessors = functions
   .region("asia-northeast1")
@@ -150,7 +155,7 @@ exports.getMerchantTopUpPaymentLink = functions
     };
 
     const secretKey = await getDragonPaySecretKey();
-    const timeStamp = firestore.Timestamp.now().toMillis();
+    const timestamp = await getCurrentTimestamp();
 
     return await db
       .collection("merchant_topups")
@@ -165,8 +170,8 @@ exports.getMerchantTopUpPaymentLink = functions
         email,
         processId,
         status: "U",
-        createdAt: timeStamp,
-        updatedAt: timeStamp,
+        createdAt: timestamp,
+        updatedAt: timestamp,
       })
       .then(() => {
         return { s: 200, m: requestPayment(secretKey, paymentInput) };
@@ -178,12 +183,20 @@ exports.getMerchantTopUpPaymentLink = functions
       });
   });
 
+exports.editTransaction = async ({ operation, txnId }) => {
+  const operationLink = (await requestPaymentOperation({ operation, txnId }))
+    .url;
+
+  return await fetch(operationLink);
+};
+
 exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
   const {
     userId,
     userEmail,
     processId,
     subTotal,
+    transactionFee,
     deliveryMethod,
     deliveryPrice,
     storeName,
@@ -197,7 +210,9 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
       ? `Payment to ${storeName} for Order #${orderId} (Not inclusive of delivery fee)`
       : `Payment to ${storeName} for Order #${orderId} (Inclusive of delivery fee)`;
   const amount =
-    deliveryMethod === "Own Delivery" ? subTotal + deliveryPrice : subTotal;
+    deliveryMethod === "Own Delivery" || deliveryMethod === "Mr. Speedy"
+      ? subTotal + deliveryPrice
+      : subTotal;
 
   const paymentInput = {
     merchantId: "MARKETEERPH",
@@ -212,11 +227,15 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
   };
 
   const secretKey = await getDragonPaySecretKey();
-  const timeStamp = firestore.Timestamp.now().toMillis();
+  const timestamp = await getCurrentTimestamp();
 
   return await transactionDoc
     .set({
       paymentAmount: amount,
+      subTotal,
+      deliveryPrice,
+      deliveryMethod,
+      transactionFee,
       paymentGatewayFee,
       storeId,
       merchantId,
@@ -226,8 +245,8 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
       userEmail,
       processId,
       status: "U",
-      createdAt: timeStamp,
-      updatedAt: timeStamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
     })
     .then(() => {
       return requestPayment(secretKey, paymentInput).url;
@@ -249,7 +268,7 @@ exports.checkPayment = async (req, res) => {
         : param1 === "order_payment"
         ? db.collection("order_payments").doc(txnid)
         : null;
-    const timeStamp = firestore.Timestamp.now().toMillis();
+    const timestamp = await getCurrentTimestamp();
 
     if (digest !== confirmDigest) {
       throw new Error("Digest mismatch. Please try again.");
@@ -286,28 +305,10 @@ exports.checkPayment = async (req, res) => {
           const storeDoc = db.collection("stores").doc(storeId);
           const { paymentGatewayFee } = payment_methods[processId];
           const orderDoc = db.collection("orders").doc(txnid);
-          let weekStart = moment(timeStamp, "x")
-            .tz("Etc/GMT+8")
-            .subtract(1, "weeks")
-            .weekday(6)
-            .startOf("day")
-            .format("MMDDYYYY");
-          let weekEnd = moment(timeStamp, "x")
-            .tz("Etc/GMT+8")
-            .weekday(5)
-            .endOf("day")
-            .format("MMDDYYYY");
-
-          if (timeStamp > moment(weekEnd, "MMDDYYYY").format("x")) {
-            weekStart = moment(weekStart, "MMDDYYYY")
-              .add(1, "weeks")
-              .format("MMDDYYYY");
-
-            weekEnd = moment(weekEnd, "MMDDYYYY")
-              .add(1, "weeks")
-              .format("MMDDYYYY");
-          }
-
+          const {
+            weekStart,
+            weekEnd,
+          } = await getCurrentWeeklyPeriodFromTimestamp(timestamp);
           const period = `${weekStart}-${weekEnd}`;
           const merchantInvoiceDoc = db
             .collection("merchants")
@@ -324,38 +325,36 @@ exports.checkPayment = async (req, res) => {
                   },
                   paid: {
                     status: true,
-                    updatedAt: timeStamp,
+                    updatedAt: timestamp,
                   },
                 },
-                updatedAt: timeStamp,
+                paymentLink: null,
+                updatedAt: timestamp,
               },
               { merge: true }
             )
-            .then(() => {
-              return merchantInvoiceDoc.get();
-            })
-            .then((document) => {
-              if (document.exists) {
-                return merchantInvoiceDoc.update({
-                  successfulTransactionCount: firestore.FieldValue.increment(1),
-                  totalAmount: firestore.FieldValue.increment(paymentAmount),
-                  totalPaymentGatewayFees: firestore.FieldValue.increment(
-                    paymentGatewayFee
+            .then(async () => {
+              return await merchantInvoiceDoc.set(
+                {
+                  startDate: await moment(weekStart, "MMDDYYYY").format(
+                    "MM-DD-YYYY"
                   ),
-                  updatedAt: timeStamp,
-                });
-              }
-
-              return merchantInvoiceDoc.set({
-                startDate: moment(weekStart, "MMDDYYYY").format("MM-DD-YYYY"),
-                endDate: moment(weekEnd, "MMDDYYYY").format("MM-DD-YYYY"),
-                successfulTransactionCount: 1,
-                totalAmount: paymentAmount,
-                totalPaymentGatewayFees: paymentGatewayFee,
-                status: "Pending",
-                updatedAt: timeStamp,
-                createdAt: timeStamp,
-              });
+                  endDate: await moment(weekEnd, "MMDDYYYY").format(
+                    "MM-DD-YYYY"
+                  ),
+                  onlineBanking: {
+                    transactionCount: firestore.FieldValue.increment(1),
+                    totalAmount: firestore.FieldValue.increment(paymentAmount),
+                    totalPaymentGatewayFees: firestore.FieldValue.increment(
+                      paymentGatewayFee
+                    ),
+                    updatedAt: timestamp,
+                  },
+                  status: "Pending",
+                  updatedAt: timestamp,
+                },
+                { merge: true }
+              );
             })
             .then(async () => {
               const storeData = (await storeDoc.get()).data();
@@ -396,10 +395,10 @@ exports.checkPayment = async (req, res) => {
                 cancelled: {
                   status: true,
                   reason: "Online Payment failure",
-                  updatedAt: timeStamp,
+                  updatedAt: timestamp,
                 },
               },
-              updatedAt: timeStamp,
+              updatedAt: timestamp,
             },
             { merge: true }
           );
@@ -409,7 +408,7 @@ exports.checkPayment = async (req, res) => {
       transactionDoc.update({
         status,
         refno,
-        updatedAt: timeStamp,
+        updatedAt: timestamp,
       });
     }
 

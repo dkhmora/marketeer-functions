@@ -3,6 +3,9 @@ const firebase = require("firebase");
 const { firestore, auth } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 const { HERE_API_KEY } = require("./util/config");
+const { payment_methods } = require("./util/dragonpay");
+const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
+const { editTransaction } = require("./payments");
 
 exports.getAddressFromCoordinates = functions
   .region("asia-northeast1")
@@ -68,6 +71,7 @@ exports.placeOrder = functions
       storeSelectedDeliveryMethod,
       storeSelectedPaymentMethod,
       storeAssignedMerchantId,
+      storeDeliveryDiscount,
     } = JSON.parse(orderInfo);
 
     const userId = context.auth.uid;
@@ -201,6 +205,40 @@ exports.placeOrder = functions
                     );
                   }
 
+                  const orderItems = storeCartItems[storeId];
+                  const deliveryMethod = storeSelectedDeliveryMethod[storeId];
+                  const paymentMethod = storeSelectedPaymentMethod[storeId];
+                  const storeDeliveryMethod =
+                    storeDetails.availableDeliveryMethods[deliveryMethod];
+
+                  if (
+                    !storeDetails.availableDeliveryMethods[deliveryMethod] ||
+                    !storeDetails.availableDeliveryMethods[deliveryMethod]
+                      .activated
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} currently does not support the delivery method ${deliveryMethod}. Please try ordering again.`
+                    );
+                  }
+
+                  if (
+                    (paymentMethod === "COD" &&
+                      (!storeDetails.availablePaymentMethods[paymentMethod] ||
+                        !storeDetails.availablePaymentMethods[paymentMethod]
+                          .activated)) ||
+                    (paymentMethod !== "COD" &&
+                      (!storeDetails.availablePaymentMethods[
+                        "Online Banking"
+                      ] ||
+                        !storeDetails.availablePaymentMethods["Online Banking"]
+                          .activated ||
+                        !payment_methods[paymentMethod]))
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} currently does not support the payment method ${paymentMethod}. Please try ordering again.`
+                    );
+                  }
+
                   const {
                     stores,
                     creditData,
@@ -235,9 +273,6 @@ exports.placeOrder = functions
                   let quantity = 0;
                   let subTotal = 0;
 
-                  const orderItems = storeCartItems[storeId];
-                  const deliveryMethod = storeSelectedDeliveryMethod[storeId];
-                  const paymentMethod = storeSelectedPaymentMethod[storeId];
                   const userEmail =
                     paymentMethod !== "COD"
                       ? storeUserEmail[storeId]
@@ -274,15 +309,28 @@ exports.placeOrder = functions
                   const timeStamp = firestore.Timestamp.now().toMillis();
                   const newStoreOrderNumber = currentStoreOrderNumber + 1;
                   const newUserOrderNumber = currentUserOrderNumber + 1;
-                  const freeDelivery =
-                    deliveryMethod === "Own Delivery" &&
-                    subTotal >= storeDetails.freeDeliveryMinimum &&
-                    storeDetails.freeDelivery;
-                  const deliveryPrice = freeDelivery
-                    ? 0
-                    : deliveryMethod !== "Own Delivery"
-                    ? null
-                    : storeDetails.ownDeliveryServiceFee;
+                  const deliveryDiscountApplicable =
+                    storeDetails.deliveryDiscount &&
+                    storeDetails.deliveryDiscount.activated &&
+                    subTotal >=
+                      storeDetails.deliveryDiscount.minimumOrderAmount;
+                  const deliveryPrice =
+                    deliveryMethod === "Own Delivery"
+                      ? storeDeliveryMethod.deliveryPrice
+                      : null;
+                  const deliveryDiscount = deliveryDiscountApplicable
+                    ? storeDetails.deliveryDiscount.discountAmount
+                    : null;
+
+                  if (
+                    deliveryDiscountApplicable &&
+                    storeDeliveryDiscount[storeId] !==
+                      storeDetails.deliveryDiscount.discountAmount
+                  ) {
+                    throw new Error(
+                      `Sorry, ${storeDetails.storeName} has updated their delivery promo. Please try placing your order again.`
+                    );
+                  }
 
                   let orderDetails = {
                     reviewed: false,
@@ -302,13 +350,14 @@ exports.placeOrder = functions
                       subTotal *
                       merchantDetails.creditData.transactionFeePercentage *
                       0.01,
-                    freeDelivery,
                     deliveryMethod,
                     deliveryPrice,
+                    deliveryDiscount,
                     paymentMethod: "COD",
                     storeId,
                     merchantId: storeDetails.merchantId,
                     storeName: storeDetails.storeName,
+                    storeLocation: storeDetails.storeLocation,
                     storeOrderNumber: newStoreOrderNumber,
                     merchantOrderNumber: newStoreOrderNumber,
                     userOrderNumber: newUserOrderNumber,
@@ -320,6 +369,32 @@ exports.placeOrder = functions
                   ) {
                     orderDetails.processId = paymentMethod;
                     orderDetails.paymentMethod = "Online Banking";
+                  }
+
+                  if (deliveryMethod === "Mr. Speedy") {
+                    const points = [
+                      {
+                        address: storeDetails.address,
+                        ...storeDetails.storeLocation,
+                      },
+                      {
+                        address: deliveryAddress,
+                        latitude: deliveryCoordinates.latitude,
+                        longitude: deliveryCoordinates.longitude,
+                      },
+                    ];
+
+                    orderDetails.mrspeedyBookingData = {
+                      estimatedOrderPrices: await getOrderPriceEstimateRange({
+                        points,
+                        subTotal,
+                      }),
+                    };
+
+                    if (paymentMethod === "COD") {
+                      orderDetails.mrspeedyBookingData.estimatedOrderPrices.motorbike += 30;
+                      orderDetails.mrspeedyBookingData.estimatedOrderPrices.car += 30;
+                    }
                   }
 
                   const ordersRef = firestore().collection("orders");
@@ -450,7 +525,7 @@ exports.cancelOrder = functions
         .runTransaction(async (transaction) => {
           const orderRef = db.collection("orders").doc(orderId);
 
-          return await transaction.get(orderRef).then((document) => {
+          return await transaction.get(orderRef).then(async (document) => {
             const orderData = document.data();
             const { storeId } = orderData;
 
@@ -483,6 +558,7 @@ exports.cancelOrder = functions
               merchantOrderNumber,
               storeOrderNumber,
               userOrderNumber,
+              paymentLink,
             } = orderData;
 
             let newOrderStatus = {};
@@ -512,18 +588,23 @@ exports.cancelOrder = functions
 
             newOrderStatus[`${currentStatus}`].status = false;
 
-            const nowTimestamp = firestore.Timestamp.now().toMillis();
+            const timestamp = firestore.Timestamp.now().toMillis();
 
             newOrderStatus.cancelled = {
               status: true,
               reason: cancelReason,
               byShopper: storeIds ? false : true,
-              updatedAt: nowTimestamp,
+              updatedAt: timestamp,
             };
+
+            if (paymentLink) {
+              await editTransaction({ operation: "VOID", txnId: orderId });
+            }
 
             transaction.update(orderRef, {
               orderStatus: newOrderStatus,
-              updatedAt: nowTimestamp,
+              paymentLink: null,
+              updatedAt: timestamp,
             });
 
             return { orderData };

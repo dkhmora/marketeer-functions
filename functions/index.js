@@ -3,6 +3,8 @@ const functions = require("firebase-functions");
 const firebase = require("firebase");
 const { FB_CONFIG, DEV_MODE } = require("./util/config");
 const app = require("express")();
+const adminApp = require("express")();
+const mrspeedyApp = require("express")();
 
 const {
   scheduledFirestoreExport,
@@ -33,6 +35,7 @@ const {
   editUserStoreRoles,
   createStoreEmployeeAccount,
   setMarketeerAdminToken,
+  executeNewDeliveryFormat,
 } = require("./admin_services");
 const {
   checkPayout,
@@ -43,7 +46,14 @@ const {
 } = require("./payments");
 const { returnOrderPayments } = require("./miscellaneous");
 const { sendDisbursementInvoicePdfs } = require("./pdf_services");
-const { getMrSpeedyDeliveryPriceEstimate } = require("./mrspeedy_services");
+const {
+  getMerchantMrSpeedyDeliveryPriceEstimate,
+  mrspeedyNotification,
+  getMrSpeedyCourierInfo,
+  cancelMrSpeedyOrder,
+  getUserMrSpeedyDeliveryPriceEstimate,
+  rebookMrSpeedyBooking,
+} = require("./mrspeedy_services");
 
 firebase.initializeApp({
   ...FB_CONFIG,
@@ -52,9 +62,6 @@ firebase.initializeApp({
 // Functions in Development
 if (DEV_MODE) {
   app.post("/returnOrderPayments", returnOrderPayments);
-
-  // Mr. Speedy Services
-  exports.getMrSpeedyDeliveryPriceEstimate = getMrSpeedyDeliveryPriceEstimate;
 
   // Payout Postback/Callback URLs
   app.post("/payout/checkPayout", checkPayout);
@@ -88,6 +95,12 @@ exports.createStoreEmployeeAccount = createStoreEmployeeAccount;
 exports.setMarketeerAdminToken = setMarketeerAdminToken;
 exports.editUserStoreRoles = editUserStoreRoles;
 
+adminApp.post("/executeNewDeliveryFormat", executeNewDeliveryFormat);
+
+exports.adminApi = functions
+  .region("asia-northeast1")
+  .https.onRequest(adminApp);
+
 // Merchant Services
 exports.sendDisbursementInvoicePdfs = DEV_MODE
   ? null
@@ -105,3 +118,16 @@ exports.cancelOrder = cancelOrder;
 exports.addReview = addReview;
 exports.sendMessageNotification = sendMessageNotification;
 exports.createAccountDocument = createAccountDocument;
+
+// Mr. Speedy Services
+exports.getUserMrSpeedyDeliveryPriceEstimate = getUserMrSpeedyDeliveryPriceEstimate;
+exports.getMerchantMrSpeedyDeliveryPriceEstimate = getMerchantMrSpeedyDeliveryPriceEstimate;
+exports.getMrSpeedyCourierInfo = getMrSpeedyCourierInfo;
+exports.cancelMrSpeedyOrder = cancelMrSpeedyOrder;
+exports.rebookMrSpeedyBooking = rebookMrSpeedyBooking;
+
+mrspeedyApp.post("/order/update", mrspeedyNotification);
+
+exports.mrspeedy = functions
+  .region("asia-northeast1")
+  .https.onRequest(mrspeedyApp);
