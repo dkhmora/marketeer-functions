@@ -7,9 +7,12 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "firestorerules": "firebase deploy --only firestore:rules",
-    "storagerules": "firebase deploy --only storage:rules",
-    "logs": "firebase functions:log"
+    "rules:firestore": "firebase deploy --only firestore:rules",
+    "rules:storage": "firebase deploy --only storage:rules",
+    "logs": "firebase functions:log",
+    "build:staging": "dotenv -e .env.staging react-scripts build",
+    "build:production": "dotenv -e .env.production react-scripts build",
+    "build:development": "dotenv -e .env.development react-scripts build"
   },
   "engines": {
     "node": "10"
@@ -17,16 +20,25 @@
   "dependencies": {
     "@google-cloud/firestore": "^4.2.0",
     "@google-cloud/secret-manager": "^3.1.0",
+    "@turf/turf": "^5.1.6",
     "axios": "^0.19.2",
     "child-process-promise": "^2.2.1",
     "crypto-js": "^4.0.0",
     "easy-soap-request": "^3.3.3",
+    "ejs": "^3.1.5",
     "express": "^4.17.1",
     "firebase": "^7.15.5",
     "firebase-admin": "^8.12.1",
     "firebase-functions": "^3.11.0",
+    "geolib": "^3.3.1",
     "mkdirp": "^1.0.4",
+    "moment": "^2.27.0",
+    "moment-timezone": "^0.5.31",
+    "ngeohash": "^0.6.3",
     "node": "^14.4.0",
+    "node-fetch": "^2.6.1",
+    "nodemailer": "^6.4.11",
+    "pdfmake": "^0.1.68",
     "query-string": "^6.13.1",
     "request": "^2.88.2",
     "xml2js": "^0.4.23"

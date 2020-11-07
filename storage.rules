@@ -10,10 +10,6 @@ service firebase.storage {
       return request.auth.uid == userId;
     }
 
-    function userIsMerchantAdmin(merchantId) {
-      return request.auth.token.merchantIds[merchantId] || request.auth.token.merchantId == merchantId;
-    }
-
     function userIsAssignedStoreRole(storeId, role) {
       return role in request.auth.token.storeIds[storeId];
     }
@@ -22,25 +18,34 @@ service firebase.storage {
       return 'admin' in request.auth.token.storeIds[storeId];
     }
 
-    match /images/merchants/{merchantId}/{allPaths=**} {
-      allow write: if userIsMerchantAdmin(merchantId);
-      allow read: if userIsAuthenticated();
+    function userIsMarketeerAdmin() {
+      return request.auth.token.role == 'marketeer-admin';
+    }
+
+    match /merchants/{merchantId}/{allPaths=**} {
+      allow read, write: if userOwnsFile(merchantId);
     }
 
     match /images/stores/{storeId}/items/{fileName} {
       allow write: if userIsStoreAdmin(storeId) || userIsAssignedStoreRole(storeId, 'manager')
       || userIsAssignedStoreRole(storeId, 'inventory_manager');
       allow read: if userIsAuthenticated();
+      allow write: if userIsMarketeerAdmin();
     }
 
     match /images/stores/{storeId}/{fileName} {
       allow write: if userIsStoreAdmin(storeId) || userIsAssignedStoreRole(storeId, 'manager');
       allow read: if userIsAuthenticated();
+      allow write: if userIsMarketeerAdmin();
+    }
+
+    match /images/merchants/{merchantId}/items/{fileName} {
+      allow read: if userIsAuthenticated();
     }
 
     match /images/orders/{orderId}/order_chat/{fileName} {
-      allow read: if userIsMerchantAdmin(resource.metadata.merchantId) || userOwnsFile(resource.metadata.customerUserId);
-      allow create: if userIsMerchantAdmin(request.resource.metadata.merchantId) || userOwnsFile(request.resource.metadata.customerUserId);
+      allow read: if userIsStoreAdmin(resource.metadata.storeId) || userOwnsFile(resource.metadata.customerUserId);
+      allow create: if userIsStoreAdmin(request.resource.metadata.storeId) || userOwnsFile(request.resource.metadata.customerUserId);
     }
 
     match /images/store_categories/{fileName} {

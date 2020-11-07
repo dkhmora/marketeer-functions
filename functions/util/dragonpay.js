@@ -2,8 +2,9 @@ const queryString = require("query-string");
 const { SHA1 } = require("crypto-js");
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const client = new SecretManagerServiceClient();
+const { DEV_MODE, SECRET_PROJECT_ID } = require("../util/config");
 
-const payment_methods = {
+let payment_methods = {
   BDO: { paymentGatewayFee: 10, disabled: false },
   CBC: { paymentGatewayFee: 10, disabled: false },
   LBPA: { paymentGatewayFee: 10, disabled: false },
@@ -42,7 +43,7 @@ const payment_methods = {
   BITC: { paymentGatewayFee: 10, disabled: false },
   GRPY: { paymentGatewayFee: 20, disabled: false },
   I2I: { paymentGatewayFee: 15, disabled: false },
-  GCSH: { paymentGatewayFee: 20, disabled: true },
+  GCSH: { paymentGatewayFee: 20, disabled: false },
   711: { paymentGatewayFee: 20, disabled: true },
   BDOA: { paymentGatewayFee: 15, disabled: false },
   BPIA: { paymentGatewayFee: 10, disabled: false },
@@ -50,9 +51,13 @@ const payment_methods = {
   MLH: { paymentGatewayFee: 20, disabled: false },
 };
 
+if (DEV_MODE) {
+  payment_methods.BOG = { paymentGatewayFee: 10, disabled: false };
+}
+
 const getDragonPaySecretKey = async () => {
   const [accessResponse] = await client.accessSecretVersion({
-    name: "projects/1549607298/secrets/dragonpay_secret/versions/latest",
+    name: `projects/${SECRET_PROJECT_ID}/secrets/dragonpay_secret/versions/latest`,
   });
   const secretKey = accessResponse.payload.data.toString("utf8");
 
@@ -61,7 +66,7 @@ const getDragonPaySecretKey = async () => {
 
 const getDragonPayApiKey = async () => {
   const [accessResponse] = await client.accessSecretVersion({
-    name: "projects/1549607298/secrets/dragonpay_api_key/versions/latest",
+    name: `projects/${SECRET_PROJECT_ID}/secrets/dragonpay_api_key/versions/latest`,
   });
   const secretKey = accessResponse.payload.data.toString("utf8");
 
@@ -90,15 +95,38 @@ const requestPayment = (secretkey, payload) => {
     procid: payload.processId,
   };
 
-  const url = `https://gw.dragonpay.ph/Pay.aspx?${queryString.stringify(
-    request
-  )}`;
+  const url = DEV_MODE
+    ? `https://test.dragonpay.ph/Pay.aspx?${queryString.stringify(request)}`
+    : `https://gw.dragonpay.ph/Pay.aspx?${queryString.stringify(request)}`;
+
+  return { url };
+};
+
+const requestPaymentOperation = async ({ operation, txnId }) => {
+  const secretKey = await getDragonPaySecretKey();
+  const merchantId = "MARKETEERPH";
+
+  const request = {
+    op: operation,
+    merchantid: merchantId,
+    merchantpwd: secretKey,
+    txnid: txnId,
+  };
+
+  const url = DEV_MODE
+    ? `https://test.dragonpay.ph/MerchantRequest.aspx?${queryString.stringify(
+        request
+      )}`
+    : `https://gw.dragonpay.ph/MerchantRequest.aspx?${queryString.stringify(
+        request
+      )}`;
 
   return { url };
 };
 
 module.exports = {
   requestPayment,
+  requestPaymentOperation,
   getDragonPaySecretKey,
   getDragonPayApiKey,
   payment_methods,
