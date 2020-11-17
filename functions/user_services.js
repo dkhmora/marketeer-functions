@@ -6,6 +6,7 @@ const { HERE_API_KEY } = require("./util/config");
 const { payment_methods } = require("./util/dragonpay");
 const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
 const { editTransaction } = require("./payments");
+const { getTotalItemOptionsPrice } = require("./helpers/items");
 
 exports.getAddressFromCoordinates = functions
   .region("asia-northeast1")
@@ -283,26 +284,40 @@ exports.placeOrder = functions
                   }
 
                   await orderItems.map((orderItem) => {
-                    const itemPrice = orderItem.discountedPrice
-                      ? orderItem.discountedPrice
-                      : orderItem.price;
-                    quantity = orderItem.quantity + quantity;
-                    subTotal = itemPrice * orderItem.quantity + subTotal;
-
                     const currentStoreItemIndex = currentStoreItems.findIndex(
                       (storeItem) => storeItem.itemId === orderItem.itemId
                     );
-
                     const currentStoreItem =
                       currentStoreItems[currentStoreItemIndex];
+                    const optionsPrice = getTotalItemOptionsPrice(
+                      orderItem,
+                      currentStoreItem
+                    );
+                    const itemPrice = orderItem.discountedPrice
+                      ? orderItem.discountedPrice
+                      : orderItem.price;
+                    const totalItemPrice = itemPrice + optionsPrice;
 
-                    currentStoreItem.stock -= orderItem.quantity;
-
+                    quantity += orderItem.quantity;
+                    subTotal += totalItemPrice * orderItem.quantity;
                     currentStoreItem.sales += orderItem.quantity;
 
-                    if (currentStoreItem.stock < 0) {
-                      const error = `Not enough stocks for item "${orderItem.name}" from "${storeDetails.storeName}. Please update your cart."`;
+                    if (
+                      currentStoreItem.price !== orderItem.price ||
+                      currentStoreItem.discountedPrice !==
+                        orderItem.discountedPrice
+                    ) {
+                      const error = `Price for "${orderItem.name}" from "${storeDetails.storeName} has changed. Please try ordering again."`;
                       throw new Error(error);
+                    }
+
+                    if (currentStoreItem.stock) {
+                      currentStoreItem.stock -= orderItem.quantity;
+
+                      if (currentStoreItem.stock < 0) {
+                        const error = `Not enough stocks for item "${orderItem.name}" from "${storeDetails.storeName}. Please update your cart."`;
+                        throw new Error(error);
+                      }
                     }
                   });
 
