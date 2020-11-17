@@ -3,6 +3,61 @@ const { firestore } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 const { getCurrentTimestamp } = require("./helpers/time");
 
+exports.merchantFormatConvert = async (req, res) => {
+  const { headers, body } = req;
+
+  try {
+    if (headers.pass !== "tA7#$WC#fiT&") {
+      throw new Error("Error: Password mismatch");
+    }
+
+    const { storeId, itemDoc } = body;
+
+    functions.logger.log(body);
+
+    return await db
+      .collection("stores")
+      .doc(storeId)
+      .collection("items")
+      .doc(itemDoc)
+      .get()
+      .then((document) => {
+        const documentData = document.data();
+        const items = documentData.items;
+
+        const newItems = items.map((item, index) => {
+          if (item.image) {
+            functions.logger.log(
+              item.image,
+              item.image.replace("merchants", "stores")
+            );
+          }
+
+          const newItem = {
+            ...item,
+            image: item.image
+              ? item.image.replace("merchants", "stores")
+              : null,
+          };
+
+          return newItem;
+        });
+
+        return newItems;
+      })
+      .then((newItems) => {
+        return db
+          .collection("stores")
+          .doc(storeId)
+          .collection("items")
+          .doc(itemDoc)
+          .set({ items: newItems }, { merge: true });
+      });
+  } catch (e) {
+    res.status(500).json({ m: e });
+  }
+};
+
 exports.executeNewDeliveryFormat = async (req, res) => {
   const { headers, body } = req;
 
