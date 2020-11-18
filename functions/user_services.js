@@ -293,6 +293,11 @@ exports.placeOrder = functions
                       orderItem,
                       currentStoreItem
                     );
+                    functions.logger.log(
+                      "OPTIONS PRICE",
+                      orderItem.name,
+                      optionsPrice
+                    );
                     const itemPrice = orderItem.discountedPrice
                       ? orderItem.discountedPrice
                       : orderItem.price;

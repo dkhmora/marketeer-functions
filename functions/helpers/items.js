@@ -1,23 +1,49 @@
+const functions = require("firebase-functions");
+
 const getTotalItemOptionsPrice = (item, itemSnapshot) => {
-  const { options } = itemSnapshot;
   const { selectedOptions } = item;
-  let totelOptionsPrice = 0;
+  let totalOptionsPrice = 0;
 
-  Object.values(selectedOptions).map((optionData) => {
-    Object.entries(optionData).map(([optionTitle, selectedSelections]) => {
-      Object.keys(selectedSelections).map((selectedSelectionTitle) => {
-        if (options[optionTitle] && options[optionTitle].selection) {
-          const selectionSnapshot = options[optionTitle].selection.find(
-            (selection) => selection.title === selectedSelectionTitle
+  functions.logger.log(
+    "itemSnapshot.options, selectedOptions",
+    itemSnapshot.options,
+    selectedOptions
+  );
+
+  if (selectedOptions) {
+    Object.entries(selectedOptions).map(([optionTitle, optionData]) => {
+      functions.logger.log("optionTitle, optionData", optionTitle, optionData);
+      Object.entries(optionData).map(([selectionTitle, selectionPrice]) => {
+        functions.logger.log(
+          "selectionTitle, selectionPrice",
+          selectionTitle,
+          selectionPrice
+        );
+
+        const option = itemSnapshot.options[optionTitle];
+        functions.logger.log("option", option);
+
+        if (option && option.selection) {
+          const optionSnapshot = option.selection.find(
+            (item) => item.title === selectionTitle
           );
+          if (optionSnapshot !== undefined) {
+            const optionPrice = optionSnapshot.price;
 
-          totalOptionsPrice += selectionSnapshot.price;
+            if (selectionPrice !== optionPrice) {
+              throw new Error("Option prices have changed. Please try again");
+            }
+
+            functions.logger.log("optionPrice", optionPrice);
+
+            totalOptionsPrice += optionPrice;
+          }
         }
       });
     });
-  });
+  }
 
-  return totelOptionsPrice;
+  return totalOptionsPrice;
 };
 
 module.exports = {
