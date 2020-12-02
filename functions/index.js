@@ -36,6 +36,7 @@ const {
   createStoreEmployeeAccount,
   setMarketeerAdminToken,
   executeNewDeliveryFormat,
+  merchantFormatConvert,
 } = require("./admin_services");
 const {
   checkPayout,
@@ -96,6 +97,7 @@ exports.setMarketeerAdminToken = setMarketeerAdminToken;
 exports.editUserStoreRoles = editUserStoreRoles;
 
 adminApp.post("/executeNewDeliveryFormat", executeNewDeliveryFormat);
+adminApp.post("/merchantFormatConvert", merchantFormatConvert);
 
 exports.adminApi = functions
   .region("asia-northeast1")

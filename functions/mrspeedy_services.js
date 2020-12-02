@@ -108,7 +108,6 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
           ...deliveryLocation,
           taking_amount: paymentMethod !== "COD" ? "0.00" : subTotal.toFixed(2),
           is_order_payment_here: paymentMethod === "COD",
-          is_cod_cash_voucher_required: paymentMethod === "COD",
         },
       ];
 
