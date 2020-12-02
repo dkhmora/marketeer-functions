@@ -61,8 +61,5 @@ node_modules/
 # Yarn Integrity file
 .yarn-integrity
 
-# API credentials
-config.js
-
 # .env variables
 .env.*
