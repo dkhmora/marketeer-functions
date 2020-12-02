@@ -45,7 +45,7 @@ exports.getAddressFromCoordinates = functions
             }
           })
           .catch((e) => {
-            functions.logger.log("Error in getAddressFromCoordinates", e);
+            functions.logger.error("getAddressFromCoordinates: ", e);
             resolve();
           });
       });
@@ -293,11 +293,6 @@ exports.placeOrder = functions
                       orderItem,
                       currentStoreItem
                     );
-                    functions.logger.log(
-                      "OPTIONS PRICE",
-                      orderItem.name,
-                      optionsPrice
-                    );
                     const itemPrice = orderItem.discountedPrice
                       ? orderItem.discountedPrice
                       : orderItem.price;
@@ -506,9 +501,9 @@ exports.placeOrder = functions
                   });
                 }
 
-                orderNotifications.length > 0
-                  ? await admin.messaging().sendAll(orderNotifications)
-                  : functions.logger.log(`No fcm token found for ${storeId}`);
+                if (orderNotifications.length > 0) {
+                  await admin.messaging().sendAll(orderNotifications);
+                }
 
                 return {
                   s: 200,
@@ -661,9 +656,9 @@ exports.cancelOrder = functions
             });
           });
 
-          orderNotifications.length > 0 && fcmTokens.length > 0
-            ? await admin.messaging().sendAll(orderNotifications)
-            : null;
+          if (orderNotifications.length > 0) {
+            admin.messaging().sendAll(orderNotifications);
+          }
 
           return { s: 200, m: "Order successfully cancelled!" };
         });
