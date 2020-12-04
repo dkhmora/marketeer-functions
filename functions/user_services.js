@@ -54,7 +54,7 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
       });
     });
   } catch (err) {
-    return { s: 400, m: err };
+    return { s: 400, m: err.message };
   }
 });
 
