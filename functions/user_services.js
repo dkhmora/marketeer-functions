@@ -8,7 +8,55 @@ const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
 const { editTransaction } = require("./payments");
 const { getTotalItemOptionsPrice } = require("./helpers/items");
 
-exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {});
+exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
+  const { voucherId } = data;
+  const {
+    auth: {
+      uid,
+      token: { phone_number },
+    },
+  } = context;
+
+  if (!phone_number || !uid) {
+    return { s: 400, m: "Error: User is not authorized" };
+  }
+
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const userRef = db.collection("users").doc(uid);
+      const clientConfigRef = db.collection("application").doc("client_config");
+      return transaction.getAll(userRef, clientConfigRef).then((documents) => {
+        const userData = documents[0].data();
+        const clientConfigData = documents[1].data();
+        const { claimedVouchers } = userData;
+        const { vouchers } = clientConfigData;
+
+        if (claimedVouchers?.[voucherId] !== undefined) {
+          throw new Error(`The voucher is already claimed by the user.`);
+        }
+
+        if (vouchers?.[voucherId] === undefined) {
+          throw new Error(`The voucher does not exist.`);
+        }
+
+        const { maxUses, title } = vouchers?.[voucherId] || { maxUses: 0 };
+
+        transaction.set(
+          userRef,
+          { claimedVouchers: { [voucherId]: maxUses } },
+          { merge: true }
+        );
+
+        return {
+          s: 200,
+          m: `Voucher ${title} successfully claimed! Enjoy shopping!`,
+        };
+      });
+    });
+  } catch (e) {
+    return { s: 400, m: err };
+  }
+});
 
 exports.getAddressFromCoordinates = functionsRegionHttps.onCall(
   async (data, context) => {

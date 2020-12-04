@@ -21,6 +21,7 @@ const {
   addReview,
   sendMessageNotification,
   createAccountDocument,
+  claimVoucher,
 } = require("./user_services");
 const {
   changeOrderStatus,
@@ -112,6 +113,7 @@ exports.addStoreItem = addStoreItem;
 exports.setStoreDeliveryArea = setStoreDeliveryArea;
 
 // User Services
+exports.claimVoucher = claimVoucher;
 exports.getAddressFromCoordinates = getAddressFromCoordinates;
 exports.placeOrder = placeOrder;
 exports.cancelOrder = cancelOrder;
