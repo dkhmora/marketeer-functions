@@ -53,7 +53,7 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
         };
       });
     });
-  } catch (e) {
+  } catch (err) {
     return { s: 400, m: err };
   }
 });
