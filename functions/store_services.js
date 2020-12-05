@@ -13,6 +13,7 @@ const {
   getOrderPriceEstimate,
 } = require("./util/mrspeedy");
 const { functionsRegionHttps } = require("./util/config");
+const { sendNotifications } = require("./helpers/messaging");
 
 exports.changeOrderStatus = functionsRegionHttps.onCall(
   async (data, context) => {
@@ -429,14 +430,9 @@ exports.changeOrderStatus = functionsRegionHttps.onCall(
           .then(async ({ orderData, storeData, nextStatus, paymentMethod }) => {
             const { userId, userOrderNumber } = orderData;
             const { storeName } = storeData;
-
             const userData = (
               await db.collection("users").doc(userId).get()
             ).data();
-
-            const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
-
-            const orderNotifications = [];
 
             let notificationTitle = "";
             let notificationBody = "";
@@ -480,23 +476,15 @@ exports.changeOrderStatus = functionsRegionHttps.onCall(
               type = "order_review";
             }
 
-            fcmTokens.map((token) => {
-              orderNotifications.push({
-                notification: {
-                  title: notificationTitle,
-                  body: notificationBody,
-                },
-                data: {
-                  type,
-                  orderId,
-                },
-                token,
-              });
-            });
-
-            orderNotifications.length > 0 && fcmTokens.length > 0
-              ? await admin.messaging().sendAll(orderNotifications)
-              : null;
+            sendNotifications(
+              notificationTitle,
+              notificationBody,
+              userData.fcmTokens,
+              {
+                type,
+                orderId,
+              }
+            );
 
             return {
               s: 200,

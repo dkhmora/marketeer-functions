@@ -8,6 +8,7 @@ const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
 const { editTransaction } = require("./payments");
 const { getTotalItemOptionsPrice } = require("./helpers/items");
 const { getCurrentTimestamp } = require("./helpers/time");
+const { sendNotifications } = require("./helpers/messaging");
 
 exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
   const { voucherId } = data;
@@ -368,6 +369,8 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                     orderItem,
                     currentStoreItem
                   );
+                  const voucherOrderDiscount = 0;
+                  const voucherDeliveryDiscount = 0;
                   const itemPrice = orderItem.discountedPrice
                     ? orderItem.discountedPrice
                     : orderItem.price;
@@ -548,36 +551,17 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
           .then(async ({ orderDetails, storeDetails, orderId, s, m }) => {
             if (orderDetails && storeDetails && orderId) {
               // Send Order Notification to store
-              const fcmTokens = storeDetails.fcmTokens && [
-                ...storeDetails.fcmTokens,
-              ];
+              const { storeOrderNumber, subTotal } = orderDetails;
 
-              const {
-                merchantOrderNumber,
-                storeOrderNumber,
-                subTotal,
-              } = orderDetails;
-              const orderNotifications = [];
-
-              if (fcmTokens) {
-                fcmTokens.map((token) => {
-                  orderNotifications.push({
-                    notification: {
-                      title: "You've got a new order!",
-                      body: `Order # ${storeOrderNumber}; Order Total: ${subTotal}`,
-                    },
-                    data: {
-                      type: "new_order",
-                      orderId,
-                    },
-                    token,
-                  });
-                });
-              }
-
-              if (orderNotifications.length > 0) {
-                await admin.messaging().sendAll(orderNotifications);
-              }
+              sendNotifications(
+                "You've got a new order!",
+                `Order # ${storeOrderNumber}; Order Total: ${subTotal}`,
+                storeDetails.fcmTokens,
+                {
+                  type: "new_order",
+                  orderId,
+                }
+              );
 
               return {
                 s: 200,
@@ -702,35 +686,19 @@ exports.cancelOrder = functionsRegionHttps.onCall(async (data, context) => {
         const { storeName } = (
           await db.collection("stores").doc(storeId).get()
         ).data();
-
         const userData = (
           await db.collection("users").doc(userId).get()
         ).data();
 
-        const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
-
-        const orderNotifications = [];
-
-        const notificationTitle = "Sorry, your order has been cancelled.";
-        const notificationBody = `Order # ${userOrderNumber} has been cancelled by ${storeName}. You may check the reason for cancellation by visiting the orders page.`;
-
-        fcmTokens.map((token) => {
-          orderNotifications.push({
-            notification: {
-              title: notificationTitle,
-              body: notificationBody,
-            },
-            data: {
-              type: "order_update",
-              orderId,
-            },
-            token,
-          });
-        });
-
-        if (orderNotifications.length > 0) {
-          admin.messaging().sendAll(orderNotifications);
-        }
+        sendNotifications(
+          "Sorry, your order has been cancelled.",
+          `Order # ${userOrderNumber} has been cancelled by ${storeName}. You may check the reason for cancellation by visiting the orders page.`,
+          userData.fcmTokens,
+          {
+            type: "order_update",
+            orderId,
+          }
+        );
 
         return { s: 200, m: "Order successfully cancelled!" };
       });
