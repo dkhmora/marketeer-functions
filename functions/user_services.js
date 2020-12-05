@@ -7,6 +7,7 @@ const { payment_methods } = require("./util/dragonpay");
 const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
 const { editTransaction } = require("./payments");
 const { getTotalItemOptionsPrice } = require("./helpers/items");
+const { getCurrentTimestamp } = require("./helpers/time");
 
 exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
   const { voucherId } = data;
@@ -25,33 +26,60 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
     return await db.runTransaction(async (transaction) => {
       const userRef = db.collection("users").doc(uid);
       const clientConfigRef = db.collection("application").doc("client_config");
-      return transaction.getAll(userRef, clientConfigRef).then((documents) => {
-        const userData = documents[0].data();
-        const clientConfigData = documents[1].data();
-        const { claimedVouchers } = userData;
-        const { vouchers } = clientConfigData;
+      return transaction
+        .getAll(userRef, clientConfigRef)
+        .then(async (documents) => {
+          const userData = documents[0].data();
+          const clientConfigData = documents[1].data();
+          const { claimedVouchers } = userData;
+          const { vouchers } = clientConfigData;
 
-        if (claimedVouchers?.[voucherId] !== undefined) {
-          throw new Error(`The voucher is already claimed by the user.`);
-        }
+          if (claimedVouchers?.[voucherId] !== undefined) {
+            throw new Error(`The voucher is already claimed by the user.`);
+          }
 
-        if (vouchers?.[voucherId] === undefined) {
-          throw new Error(`The voucher does not exist.`);
-        }
+          if (vouchers?.[voucherId] === undefined) {
+            throw new Error(`The voucher does not exist.`);
+          }
 
-        const { maxUses, title } = vouchers?.[voucherId] || { maxUses: 0 };
+          const { claims, maxClaims, maxUses, title } = vouchers?.[
+            voucherId
+          ] || {
+            maxUses: 0,
+            claims: 0,
+            maxClaims: 0,
+          };
 
-        transaction.set(
-          userRef,
-          { claimedVouchers: { [voucherId]: maxUses } },
-          { merge: true }
-        );
+          if (maxClaims <= claims) {
+            throw new Error(`The voucher is out of stock`);
+          }
 
-        return {
-          s: 200,
-          m: `Voucher ${title} successfully claimed! Enjoy shopping!`,
-        };
-      });
+          transaction.set(
+            userRef,
+            {
+              claimedVouchers: { [voucherId]: maxUses },
+              updatedAt: await getCurrentTimestamp(),
+            },
+            { merge: true }
+          );
+
+          transaction.set(
+            clientConfigRef,
+            {
+              vouchers: {
+                [voucherId]: {
+                  claims: firestore.FieldValue.increment(1),
+                },
+              },
+            },
+            { merge: true }
+          );
+
+          return {
+            s: 200,
+            m: `Voucher ${title} successfully claimed! Enjoy shopping!`,
+          };
+        });
     });
   } catch (err) {
     return { s: 400, m: err.message };
