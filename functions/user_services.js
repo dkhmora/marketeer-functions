@@ -57,7 +57,9 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
           transaction.set(
             userRef,
             {
-              claimedVouchers: { [voucherId]: maxUses },
+              claimedVouchers: {
+                [voucherId]: maxUses,
+              },
               updatedAt: await getCurrentTimestamp(),
             },
             { merge: true }
@@ -69,6 +71,7 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
               vouchers: {
                 [voucherId]: {
                   claims: firestore.FieldValue.increment(1),
+                  maxClaimsReached: maxClaims <= claims + 1,
                 },
               },
             },
