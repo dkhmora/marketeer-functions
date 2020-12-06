@@ -1,4 +1,4 @@
-const admin = require("../util/admin");
+const { admin } = require("../util/admin");
 
 async function sendNotifications(title, body, fcmTokens, data) {
   return await new Promise(async (res, rej) => {

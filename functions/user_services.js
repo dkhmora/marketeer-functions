@@ -236,6 +236,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
               }
             });
 
+            const originalStoreItems = [];
             const currentStoreItems = [];
             let userData = {};
             let storeDetails = {};
@@ -251,6 +252,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
 
                 await storeItemsDocs.map((storeItemDoc) => {
                   currentStoreItems.push(...storeItemDoc.data().items);
+                  originalStoreItems.push(...currentStoreItems);
                 });
 
                 if (userDoc.exists) {
@@ -526,19 +528,27 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                 });
 
                 // Update store item document quantities
-                storeItemDocs.map(async (storeItemDoc) => {
-                  const docItems = await currentStoreItems.filter(
+                storeItemDocs.map((storeItemDoc) => {
+                  const originalDocItems = originalStoreItems.filter(
                     (item) => item.doc === storeItemDoc
                   );
-                  const storeItemDocRef = db
-                    .collection("stores")
-                    .doc(storeId)
-                    .collection("items")
-                    .doc(storeItemDoc);
+                  const docItems = currentStoreItems.filter(
+                    (item) => item.doc === storeItemDoc
+                  );
 
-                  transaction.update(storeItemDocRef, {
-                    items: [...docItems],
-                  });
+                  if (originalDocItems !== docItems) {
+                    const storeItemDocRef = db
+                      .collection("stores")
+                      .doc(storeId)
+                      .collection("items")
+                      .doc(storeItemDoc);
+
+                    functions.logger.log("originalDocItems !== docItems");
+
+                    transaction.update(storeItemDocRef, {
+                      items: [...docItems],
+                    });
+                  }
                 });
 
                 transaction.update(userCartRef, {
