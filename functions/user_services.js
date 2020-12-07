@@ -68,11 +68,7 @@ exports.placeOrder = functions
       deliveryAddress,
       userCoordinates,
       userName,
-      storeUserEmail,
-      storeSelectedDeliveryMethod,
-      storeSelectedPaymentMethod,
-      storeAssignedMerchantId,
-      storeDeliveryDiscount,
+      cartStoreSnapshots,
     } = JSON.parse(orderInfo);
 
     const userId = context.auth.uid;
@@ -97,9 +93,7 @@ exports.placeOrder = functions
         !userCoordinates ||
         !userName ||
         !storeCartItems ||
-        !storeSelectedDeliveryMethod ||
-        !storeSelectedPaymentMethod ||
-        !storeAssignedMerchantId
+        !cartStoreSnapshots
       ) {
         return { s: 400, m: "Bad argument: Incomplete request" };
       }
@@ -131,9 +125,15 @@ exports.placeOrder = functions
           return await db
             .runTransaction(async (transaction) => {
               const storeRef = db.collection("stores").doc(storeId);
-              const storeMerchantId = storeAssignedMerchantId[storeId];
+              const storeOptions = cartStoreSnapshots[storeId];
+              const {
+                merchantId,
+                email,
+                deliveryMethod,
+                paymentMethod,
+              } = storeOptions;
 
-              if (!storeMerchantId) {
+              if (!merchantId) {
                 throw new Error(
                   `Sorry, a store you ordered from is currently not available. Please try again later or place another order from another store.`
                 );
@@ -141,7 +141,7 @@ exports.placeOrder = functions
 
               const storeMerchantRef = db
                 .collection("merchants")
-                .doc(storeMerchantId);
+                .doc(merchantId);
               const storeItemDocs = [];
               const storeItemRefs = [];
 
@@ -207,16 +207,10 @@ exports.placeOrder = functions
                   }
 
                   const orderItems = storeCartItems[storeId];
-                  const deliveryMethod = storeSelectedDeliveryMethod[storeId];
-                  const paymentMethod = storeSelectedPaymentMethod[storeId];
                   const storeDeliveryMethod =
                     storeDetails.availableDeliveryMethods[deliveryMethod];
 
-                  if (
-                    !storeDetails.availableDeliveryMethods[deliveryMethod] ||
-                    !storeDetails.availableDeliveryMethods[deliveryMethod]
-                      .activated
-                  ) {
+                  if (!storeDeliveryMethod || !storeDeliveryMethod.activated) {
                     throw new Error(
                       `Sorry, ${storeDetails.storeName} currently does not support the delivery method ${deliveryMethod}. Please try ordering again.`
                     );
@@ -275,9 +269,7 @@ exports.placeOrder = functions
                   let subTotal = 0;
 
                   const userEmail =
-                    paymentMethod !== "COD"
-                      ? storeUserEmail[storeId]
-                      : userRegistrationEmail;
+                    paymentMethod !== "COD" ? email : userRegistrationEmail;
 
                   if (paymentMethod !== "COD" && !userEmail) {
                     return { s: 400, m: "Bad argument: Incomplete request" };
@@ -336,16 +328,6 @@ exports.placeOrder = functions
                   const deliveryDiscount = deliveryDiscountApplicable
                     ? storeDetails.deliveryDiscount.discountAmount
                     : null;
-
-                  if (
-                    deliveryDiscountApplicable &&
-                    storeDeliveryDiscount[storeId] !==
-                      storeDetails.deliveryDiscount.discountAmount
-                  ) {
-                    throw new Error(
-                      `Sorry, ${storeDetails.storeName} has updated their delivery promo. Please try placing your order again.`
-                    );
-                  }
 
                   let orderDetails = {
                     reviewed: false,
