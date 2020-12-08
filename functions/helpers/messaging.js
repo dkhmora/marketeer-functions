@@ -1,7 +1,7 @@
 const { admin } = require("../util/admin");
 
 async function sendNotifications(title, body, fcmTokens, data) {
-  return await new Promise(async (res, rej) => {
+  return await new Promise((res, rej) => {
     try {
       const notifications = [];
 
@@ -19,7 +19,7 @@ async function sendNotifications(title, body, fcmTokens, data) {
       }
 
       if (notifications.length > 0) {
-        await admin.messaging().sendAll(notifications);
+        admin.messaging().sendAll(notifications);
       }
 
       res();
