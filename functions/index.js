@@ -1,7 +1,7 @@
 /* eslint-disable promise/no-nesting */
 const functions = require("firebase-functions");
 const firebase = require("firebase");
-const { FB_CONFIG, DEV_MODE } = require("./util/config");
+const { FB_CONFIG, DEV_MODE, functionsRegionHttps } = require("./util/config");
 const app = require("express")();
 const adminApp = require("express")();
 const mrspeedyApp = require("express")();
@@ -21,6 +21,7 @@ const {
   addReview,
   sendMessageNotification,
   createAccountDocument,
+  claimVoucher,
 } = require("./user_services");
 const {
   changeOrderStatus,
@@ -77,7 +78,7 @@ exports.getAvailablePaymentProcessors = getAvailablePaymentProcessors;
 // ** Dragonpay PRODUCTION **
 
 // API
-exports.api = functions.region("asia-northeast1").https.onRequest(app);
+exports.api = functionsRegionHttps.onRequest(app);
 
 // Automated Services
 exports.scheduledFirestoreExport = DEV_MODE ? null : scheduledFirestoreExport;
@@ -99,9 +100,7 @@ exports.editUserStoreRoles = editUserStoreRoles;
 adminApp.post("/executeNewDeliveryFormat", executeNewDeliveryFormat);
 adminApp.post("/merchantFormatConvert", merchantFormatConvert);
 
-exports.adminApi = functions
-  .region("asia-northeast1")
-  .https.onRequest(adminApp);
+exports.adminApi = functionsRegionHttps.onRequest(adminApp);
 
 // Merchant Services
 exports.sendDisbursementInvoicePdfs = DEV_MODE
@@ -114,6 +113,7 @@ exports.addStoreItem = addStoreItem;
 exports.setStoreDeliveryArea = setStoreDeliveryArea;
 
 // User Services
+exports.claimVoucher = claimVoucher;
 exports.getAddressFromCoordinates = getAddressFromCoordinates;
 exports.placeOrder = placeOrder;
 exports.cancelOrder = cancelOrder;
@@ -130,6 +130,4 @@ exports.rebookMrSpeedyBooking = rebookMrSpeedyBooking;
 
 mrspeedyApp.post("/order/update", mrspeedyNotification);
 
-exports.mrspeedy = functions
-  .region("asia-northeast1")
-  .https.onRequest(mrspeedyApp);
+exports.mrspeedy = functionsRegionHttps.onRequest(mrspeedyApp);

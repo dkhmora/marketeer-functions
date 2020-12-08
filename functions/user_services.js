@@ -2,15 +2,96 @@ const functions = require("firebase-functions");
 const firebase = require("firebase");
 const { firestore, auth } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
-const { HERE_API_KEY } = require("./util/config");
+const { HERE_API_KEY, functionsRegionHttps } = require("./util/config");
 const { payment_methods } = require("./util/dragonpay");
 const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
 const { editTransaction } = require("./payments");
 const { getTotalItemOptionsPrice } = require("./helpers/items");
+const { getCurrentTimestamp } = require("./helpers/time");
+const { sendNotifications } = require("./helpers/messaging");
 
-exports.getAddressFromCoordinates = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
+  const { voucherId } = data;
+  const {
+    auth: {
+      uid,
+      token: { phone_number },
+    },
+  } = context;
+
+  if (!phone_number || !uid) {
+    return { s: 400, m: "Error: User is not authorized" };
+  }
+
+  try {
+    return await db.runTransaction(async (transaction) => {
+      const userRef = db.collection("users").doc(uid);
+      const clientConfigRef = db.collection("application").doc("client_config");
+      return transaction
+        .getAll(userRef, clientConfigRef)
+        .then(async (documents) => {
+          const userData = documents[0].data();
+          const clientConfigData = documents[1].data();
+          const { claimedVouchers } = userData;
+          const { vouchers } = clientConfigData;
+
+          if (claimedVouchers?.[voucherId] !== undefined) {
+            throw new Error(`The voucher is already claimed by the user.`);
+          }
+
+          if (vouchers?.[voucherId] === undefined) {
+            throw new Error(`The voucher does not exist.`);
+          }
+
+          const { claims, maxClaims, maxUses, title } = vouchers?.[
+            voucherId
+          ] || {
+            maxUses: 0,
+            claims: 0,
+            maxClaims: 0,
+          };
+
+          if (maxClaims <= claims) {
+            throw new Error(`The voucher is out of stock`);
+          }
+
+          transaction.set(
+            userRef,
+            {
+              claimedVouchers: {
+                [voucherId]: maxUses,
+              },
+              updatedAt: await getCurrentTimestamp(),
+            },
+            { merge: true }
+          );
+
+          transaction.set(
+            clientConfigRef,
+            {
+              vouchers: {
+                [voucherId]: {
+                  claims: firestore.FieldValue.increment(1),
+                  maxClaimsReached: maxClaims <= claims + 1,
+                },
+              },
+            },
+            { merge: true }
+          );
+
+          return {
+            s: 200,
+            m: `Voucher ${title} successfully claimed! Enjoy shopping!`,
+          };
+        });
+    });
+  } catch (err) {
+    return { s: 400, m: err.message };
+  }
+});
+
+exports.getAddressFromCoordinates = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { latitude, longitude } = data;
     let locationDetails = null;
 
@@ -56,10 +137,8 @@ exports.getAddressFromCoordinates = functions
     return { s: 200, locationDetails };
   });
 
-exports.placeOrder = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
-    const userRegistrationEmail = context.auth.token.email;
+exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
+  const userRegistrationEmail = context.auth.token.email;
     const { orderInfo } = data;
 
     const {
@@ -503,10 +582,8 @@ exports.placeOrder = functions
     }
   });
 
-exports.cancelOrder = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
-    const { orderId, cancelReason } = data;
+exports.cancelOrder = functionsRegionHttps.onCall(async (data, context) => {
+  const { orderId, cancelReason } = data;
     const userId = context.auth.uid;
     const storeIds = context.auth.token.storeIds;
 
@@ -648,110 +725,106 @@ exports.cancelOrder = functions
     } catch (e) {
       return { s: 400, m: e.message };
     }
-  });
+});
 
-exports.addReview = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
-    const { orderId, storeId, reviewBody, rating } = data;
-    const userId = context.auth.uid;
-    const userName = context.auth.token.name || null;
-    const userPhoneNumber = context.auth.token.phone_number;
+exports.addReview = functionsRegionHttps.onCall(async (data, context) => {
+  const { orderId, storeId, reviewBody, rating } = data;
+  const userId = context.auth.uid;
+  const userName = context.auth.token.name || null;
+  const userPhoneNumber = context.auth.token.phone_number;
 
-    if (!userId || !userPhoneNumber) {
-      return { s: 400, m: "Error: User is not authorized" };
-    }
+  if (!userId || !userPhoneNumber) {
+    return { s: 400, m: "Error: User is not authorized" };
+  }
 
-    if (orderId === undefined || rating === undefined) {
-      return { s: 400, m: "Bad argument: Incomplete data" };
-    }
+  if (orderId === undefined || rating === undefined) {
+    return { s: 400, m: "Bad argument: Incomplete data" };
+  }
 
-    try {
-      return db.runTransaction(async (transaction) => {
-        const orderRef = db.collection("orders").doc(orderId);
-        const storeRef = db.collection("stores").doc(storeId);
-        let orderReviewPage = 0;
-        let newRatingAverage = 0;
+  try {
+    return db.runTransaction(async (transaction) => {
+      const orderRef = db.collection("orders").doc(orderId);
+      const storeRef = db.collection("stores").doc(storeId);
+      let orderReviewPage = 0;
+      let newRatingAverage = 0;
 
-        return await transaction
-          .getAll(orderRef, storeRef)
-          .then((documents) => {
-            const orderDoc = documents[0];
-            const storeDoc = documents[1];
-            const timeStamp = firestore.Timestamp.now().toMillis();
+      return await transaction.getAll(orderRef, storeRef).then((documents) => {
+        const orderDoc = documents[0];
+        const storeDoc = documents[1];
+        const timeStamp = firestore.Timestamp.now().toMillis();
 
-            const review = {
-              reviewBody,
-              rating,
-              orderId,
-              userId,
-              userName,
-              createdAt: timeStamp,
-            };
+        const review = {
+          reviewBody,
+          rating,
+          orderId,
+          userId,
+          userName,
+          createdAt: timeStamp,
+        };
 
-            if (orderDoc.exists) {
-              if (orderDoc.data().reviewed) {
-                throw new Error("The order is already reviewed");
-              } else if (orderDoc.data().storeId !== storeId) {
-                throw new Error("Store Ids do not match");
-              } else {
-                transaction.update(orderDoc.ref, {
-                  reviewed: true,
-                  updatedAt: timeStamp,
-                });
-              }
+        if (orderDoc.exists) {
+          if (orderDoc.data().reviewed) {
+            throw new Error("The order is already reviewed");
+          } else if (orderDoc.data().storeId !== storeId) {
+            throw new Error("Store Ids do not match");
+          } else {
+            transaction.update(orderDoc.ref, {
+              reviewed: true,
+              updatedAt: timeStamp,
+            });
+          }
+        }
+
+        if (storeDoc.exists) {
+          const { reviewNumber, ratingAverage } = storeDoc.data();
+
+          if (reviewNumber && ratingAverage) {
+            orderReviewPage = Math.floor(reviewNumber / 2000);
+
+            if (orderReviewPage <= 0) {
+              orderReviewPage = 1;
             }
 
-            if (storeDoc.exists) {
-              const { reviewNumber, ratingAverage } = storeDoc.data();
+            newRatingAverage = (ratingAverage + rating) / 2;
 
-              if (reviewNumber && ratingAverage) {
-                orderReviewPage = Math.floor(reviewNumber / 2000);
+            const orderReviewPageRef = db
+              .collection("stores")
+              .doc(storeId)
+              .collection("order_reviews")
+              .doc(`${orderReviewPage}`);
 
-                if (orderReviewPage <= 0) {
-                  orderReviewPage = 1;
-                }
+            transaction.update(orderReviewPageRef, {
+              reviews: firestore.FieldValue.arrayUnion(review),
+            });
+          } else {
+            newRatingAverage = rating;
 
-                newRatingAverage = (ratingAverage + rating) / 2;
+            const firstOrderReviewPageRef = db
+              .collection("stores")
+              .doc(storeId)
+              .collection("order_reviews")
+              .doc("1");
 
-                const orderReviewPageRef = db
-                  .collection("stores")
-                  .doc(storeId)
-                  .collection("order_reviews")
-                  .doc(`${orderReviewPage}`);
+            transaction.set(firstOrderReviewPageRef, {
+              reviews: [review],
+            });
+          }
 
-                transaction.update(orderReviewPageRef, {
-                  reviews: firestore.FieldValue.arrayUnion(review),
-                });
-              } else {
-                newRatingAverage = rating;
-
-                const firstOrderReviewPageRef = db
-                  .collection("stores")
-                  .doc(storeId)
-                  .collection("order_reviews")
-                  .doc("1");
-
-                transaction.set(firstOrderReviewPageRef, {
-                  reviews: [review],
-                });
-              }
-
-              transaction.update(storeRef, {
-                reviewNumber: firestore.FieldValue.increment(1),
-                ratingAverage: newRatingAverage,
-              });
-            } else {
-              return { s: 500, m: "Error, store was not found" };
-            }
-
-            return { s: 200, m: "Review placed!" };
+          transaction.update(storeRef, {
+            reviewNumber: firestore.FieldValue.increment(1),
+            ratingAverage: newRatingAverage,
           });
+        } else {
+          return { s: 500, m: "Error, store was not found" };
+        }
+
+        return { s: 200, m: "Review placed!" };
       });
-    } catch (e) {
-      return { s: 400, m: e };
-    }
-  });
+    });
+  } catch (e) {
+    return { s: 400, m: e };
+  }
+});
 
 exports.sendMessageNotification = functions
   .region("asia-northeast1")
@@ -810,9 +883,8 @@ exports.sendMessageNotification = functions
     }
   });
 
-exports.createAccountDocument = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.createAccountDocument = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { birthdate, gender } = data;
     const { uid } = context.auth.token;
 
@@ -839,4 +911,5 @@ exports.createAccountDocument = functions
       .then(() => {
         return { s: 200, m: "User documents successfully created!" };
       });
-  });
+  }
+);

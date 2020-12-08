@@ -12,10 +12,11 @@ const {
   placeMrSpeedyOrder,
   getOrderPriceEstimate,
 } = require("./util/mrspeedy");
+const { functionsRegionHttps } = require("./util/config");
+const { sendNotifications } = require("./helpers/messaging");
 
-exports.changeOrderStatus = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.changeOrderStatus = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { orderId, storeId, merchantId, mrspeedyBookingData } = data;
     const userId = context.auth.uid;
     const storeIds = context.auth.token.storeIds;
@@ -429,14 +430,9 @@ exports.changeOrderStatus = functions
           .then(async ({ orderData, storeData, nextStatus, paymentMethod }) => {
             const { userId, userOrderNumber } = orderData;
             const { storeName } = storeData;
-
             const userData = (
               await db.collection("users").doc(userId).get()
             ).data();
-
-            const fcmTokens = userData.fcmTokens ? userData.fcmTokens : [];
-
-            const orderNotifications = [];
 
             let notificationTitle = "";
             let notificationBody = "";
@@ -480,23 +476,15 @@ exports.changeOrderStatus = functions
               type = "order_review";
             }
 
-            fcmTokens.map((token) => {
-              orderNotifications.push({
-                notification: {
-                  title: notificationTitle,
-                  body: notificationBody,
-                },
-                data: {
-                  type,
-                  orderId,
-                },
-                token,
-              });
-            });
-
-            orderNotifications.length > 0 && fcmTokens.length > 0
-              ? await admin.messaging().sendAll(orderNotifications)
-              : null;
+            sendNotifications(
+              notificationTitle,
+              notificationBody,
+              userData.fcmTokens,
+              {
+                type,
+                orderId,
+              }
+            );
 
             return {
               s: 200,
@@ -507,106 +495,104 @@ exports.changeOrderStatus = functions
     } catch (e) {
       return { s: 400, m: `Error, something went wrong: ${e}` };
     }
-  });
+  }
+);
 
-exports.addStoreItem = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
-    const { item, storeId } = data;
-    const storeIds = context.auth.token.storeIds;
+exports.addStoreItem = functionsRegionHttps.onCall(async (data, context) => {
+  const { item, storeId } = data;
+  const storeIds = context.auth.token.storeIds;
 
-    if (!item || !storeId) {
-      return { s: 400, m: "Bad argument: Incomplete data" };
-    }
+  if (!item || !storeId) {
+    return { s: 400, m: "Bad argument: Incomplete data" };
+  }
 
-    if (!storeIds) {
-      return { s: 400, m: "Error: User is not authorized" };
-    }
+  if (!storeIds) {
+    return { s: 400, m: "Error: User is not authorized" };
+  }
 
-    const userStoreRoles = storeIds[storeId];
+  const userStoreRoles = storeIds[storeId];
 
-    if (storeIds && !userStoreRoles) {
-      return { s: 400, m: "Error: User is not authorized" };
-    }
+  if (storeIds && !userStoreRoles) {
+    return { s: 400, m: "Error: User is not authorized" };
+  }
 
-    if (
-      !userStoreRoles.includes("admin") &&
-      !userStoreRoles.includes("inventory_manager") &&
-      !userStoreRoles.includes("manager")
-    ) {
-      return {
-        s: 400,
-        m:
-          "Error: User does not have required permissions. Please contact Marketeer support to set a role for your account if required.",
-      };
-    }
+  if (
+    !userStoreRoles.includes("admin") &&
+    !userStoreRoles.includes("inventory_manager") &&
+    !userStoreRoles.includes("manager")
+  ) {
+    return {
+      s: 400,
+      m:
+        "Error: User does not have required permissions. Please contact Marketeer support to set a role for your account if required.",
+    };
+  }
 
-    const storeItemsRef = db
-      .collection("stores")
-      .doc(storeId)
-      .collection("items");
+  const storeItemsRef = db
+    .collection("stores")
+    .doc(storeId)
+    .collection("items");
 
-    try {
-      let newItem = JSON.parse(item);
-      let storeItemsDocId = null;
+  try {
+    let newItem = JSON.parse(item);
+    let storeItemsDocId = null;
 
-      await storeItemsRef
-        .where("itemNumber", "<", 1500)
-        .orderBy("itemNumber", "desc")
-        .limit(1)
-        .get()
-        .then((querySnapshot) => {
-          if (!querySnapshot.empty) {
-            return querySnapshot.forEach((doc, index) => {
-              storeItemsDocId = doc.id;
-            });
-          }
+    await storeItemsRef
+      .where("itemNumber", "<", 1500)
+      .orderBy("itemNumber", "desc")
+      .limit(1)
+      .get()
+      .then((querySnapshot) => {
+        if (!querySnapshot.empty) {
+          return querySnapshot.forEach((doc, index) => {
+            storeItemsDocId = doc.id;
+          });
+        }
 
-          return null;
+        return null;
+      });
+
+    if (storeItemsDocId) {
+      const storeItemsDoc = db
+        .collection("stores")
+        .doc(storeId)
+        .collection("items")
+        .doc(storeItemsDocId);
+
+      newItem.doc = storeItemsDocId;
+
+      return await storeItemsDoc
+        .update({
+          items: firestore.FieldValue.arrayUnion(newItem),
+          itemNumber: firestore.FieldValue.increment(1),
+          updatedAt: newItem.updatedAt,
+        })
+        .then(() => {
+          return { s: 200, m: "Item Added!" };
         });
+    } else {
+      const initialstoreItemsRef = storeItemsRef.doc();
+      newItem.doc = initialstoreItemsRef.id;
 
-      if (storeItemsDocId) {
-        const storeItemsDoc = db
-          .collection("stores")
-          .doc(storeId)
-          .collection("items")
-          .doc(storeItemsDocId);
-
-        newItem.doc = storeItemsDocId;
-
-        return await storeItemsDoc
-          .update({
-            items: firestore.FieldValue.arrayUnion(newItem),
-            itemNumber: firestore.FieldValue.increment(1),
-            updatedAt: newItem.updatedAt,
-          })
-          .then(() => {
-            return { s: 200, m: "Item Added!" };
-          });
-      } else {
-        const initialstoreItemsRef = storeItemsRef.doc();
-        newItem.doc = initialstoreItemsRef.id;
-
-        return await storeItemsRef
-          .doc(initialstoreItemsRef.id)
-          .set({
-            items: [newItem],
-            itemNumber: 1,
-            updatedAt: newItem.updatedAt,
-            createdAt: newItem.createdAt,
-          })
-          .then(() => {
-            return { s: 200, m: "Item Added!" };
-          });
-      }
-    } catch (e) {
-      return { s: 400, m: e };
+      return await storeItemsRef
+        .doc(initialstoreItemsRef.id)
+        .set({
+          items: [newItem],
+          itemNumber: 1,
+          updatedAt: newItem.updatedAt,
+          createdAt: newItem.createdAt,
+        })
+        .then(() => {
+          return { s: 200, m: "Item Added!" };
+        });
     }
-  });
+  } catch (e) {
+    return { s: 400, m: e };
+  }
+});
 
-exports.setStoreDeliveryArea = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.setStoreDeliveryArea = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { distance, midPoint, storeId } = data;
     const storeIds = context.auth.token.storeIds;
 
@@ -667,4 +653,5 @@ exports.setStoreDeliveryArea = functions
     } catch (e) {
       return { s: 400, m: e };
     }
-  });
+  }
+);
