@@ -5,13 +5,15 @@ const { functionsRegionHttps } = require("./util/config");
 
 exports.signInWithPhoneAndPassword = functionsRegionHttps.onCall(
   async (data, context) => {
-    const { phoneNumber, password } = data;
+    const { phoneNumber, phone, password } = data;
     if (phoneNumber === undefined || password === undefined) {
       return { s: 400, m: "Bad argument: no phone number" };
     }
 
+    const mainPhoneNumber = phone || phoneNumber;
+
     try {
-      const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
+      const user = await admin.auth().getUserByPhoneNumber(mainPhoneNumber);
 
       await firebase.auth().signInWithEmailAndPassword(user.email, password);
 
