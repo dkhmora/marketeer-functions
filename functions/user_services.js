@@ -138,6 +138,156 @@ exports.getAddressFromCoordinates = functionsRegionHttps.onCall(
   }
 );
 
+exports.placeOrderTest = functionsRegionHttps.onCall(async (data, context) => {
+  try {
+    const userRegistrationEmail = context.auth.token.email;
+    const { orderInfo } = data;
+
+    const {
+      deliveryCoordinates,
+      deliveryCoordinatesGeohash,
+      deliveryAddress,
+      userCoordinates,
+      userName,
+      cartStoreSnapshots,
+    } = JSON.parse(orderInfo);
+
+    const userId = context.auth.uid;
+    const userPhoneNumber = context.auth.token.phone_number;
+
+    if (!userId || !userPhoneNumber) {
+      throw new Error("Error: User is not authorized");
+    }
+
+    const userRef = db.collection("users").doc(userId);
+    const userCartRef = db.collection("user_carts").doc(userId);
+    const storeCartItems = (await userCartRef.get()).data();
+    const storeRefs = [];
+    const merchantRefs = [];
+    const storeItemRefs = [];
+    let storeItemDocsMap = {};
+
+    await Object.entries(storeCartItems).map(([storeId, items]) => {
+      items.map((item) => {
+        const storeItemDocs = storeItemDocsMap[storeId] || [];
+
+        if (!storeItemDocs.includes(item.doc)) {
+          storeItemRefs.push(
+            db
+              .collection("stores")
+              .doc(storeId)
+              .collection("items")
+              .doc(item.doc)
+          );
+
+          storeItemDocsMap = {
+            ...storeItemDocsMap,
+            [storeId]: [...storeItemDocs, item.doc],
+          };
+        }
+      });
+    });
+
+    if (
+      !deliveryCoordinates ||
+      !deliveryAddress ||
+      !userCoordinates ||
+      !userName ||
+      !storeCartItems ||
+      !cartStoreSnapshots
+    ) {
+      return { s: 400, m: "Bad argument: Incomplete request" };
+    }
+
+    await Object.entries(cartStoreSnapshots).map(([storeId, storeOptions]) => {
+      storeRefs.push(db.collection("stores").doc(storeId));
+      merchantRefs.push(
+        db.collection("merchants").doc(storeOptions.merchantId)
+      );
+    });
+
+    const orderStatus = {
+      pending: {
+        status: true,
+        updatedAt: firestore.Timestamp.now().toMillis(),
+      },
+      unpaid: {
+        status: false,
+      },
+      paid: {
+        status: false,
+      },
+      shipped: {
+        status: false,
+      },
+      completed: {
+        status: false,
+      },
+      cancelled: {
+        status: false,
+      },
+    };
+
+    return await db.runTransaction((transaction) => {
+      return (
+        transaction
+          .getAll(userRef, ...storeRefs, ...merchantRefs, ...storeItemRefs)
+          // eslint-disable-next-line promise/always-return
+          .then(async (documents) => {
+            const userDoc = documents[0];
+            const storeDocs = documents.slice(1, storeRefs.length);
+            const storeMerchantDocs = documents.slice(
+              storeRefs.length,
+              merchantRefs.length
+            );
+            const storeItemsDocs = documents.slice(
+              merchantRefs.length,
+              documents.length
+            );
+            let storeDataMap = {};
+            const userData = userDoc.data();
+
+            functions.logger.log("storeDocs", storeDocs);
+
+            await storeDocs.map((storeDoc, index) => {
+              const storeId = storeDoc.id;
+              const storeData = storeDoc.data();
+              const merchantRef = storeMerchantDocs.find(
+                (merchantDoc) => merchantDoc.id === storeData.merchantId
+              );
+              const merchantData = merchantRef ? merchantRef.data() : null;
+              const itemData = storeItemsDocs.filter((storeItemDoc) =>
+                storeItemDocMap[storeId].includes(storeItemDoc.id)
+              );
+
+              functions.logger.log(storeId, storeData, merchantData, itemData);
+
+              storeDataMap = {
+                ...storeDataMap,
+                [storeId]: {
+                  storeData,
+                  merchantData,
+                  itemData,
+                },
+              };
+            });
+
+            functions.logger.log("yes");
+
+            functions.logger.log("userData", userData);
+
+            functions.logger.debug("storeDataMap", storeDataMap);
+
+            return { s: 400, m: `Test` };
+          })
+      );
+    });
+  } catch (e) {
+    functions.logger.error(e);
+    return { s: 400, m: `${e}` };
+  }
+});
+
 exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
   const userRegistrationEmail = context.auth.token.email;
   const { orderInfo } = data;
@@ -209,6 +359,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
               email,
               deliveryMethod,
               paymentMethod,
+              vouchersApplied,
             } = storeOptions;
 
             if (!merchantId) {
@@ -399,7 +550,11 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                     ? storeDeliveryMethod.deliveryPrice
                     : null;
                 const deliveryDiscount = deliveryDiscountApplicable
-                  ? storeDetails.deliveryDiscount.discountAmount
+                  ? {
+                      discountAmount:
+                        storeDetails.deliveryDiscount.discountAmount,
+                      type: "storeDiscount",
+                    }
                   : null;
 
                 let orderDetails = {
