@@ -2,6 +2,7 @@ const functions = require("firebase-functions");
 const { firestore } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 const { getCurrentTimestamp } = require("./helpers/time");
+const { functionsRegionHttps } = require("./util/config");
 
 exports.merchantFormatConvert = async (req, res) => {
   const { headers, body } = req;
@@ -140,29 +141,26 @@ exports.executeNewDeliveryFormat = async (req, res) => {
   }
 };
 
-exports.executePayout = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
-    const { disbursementDateRange } = data;
+exports.executePayout = functionsRegionHttps.onCall(async (data, context) => {
+  const { disbursementDateRange } = data;
 
-    return await db
-      .collection("merchants")
-      .where("generateInvoice", "==", true)
-      .get()
-      .then(async (querySnapshot) => {
-        const merchantIds = [];
+  return await db
+    .collection("merchants")
+    .where("generateInvoice", "==", true)
+    .get()
+    .then(async (querySnapshot) => {
+      const merchantIds = [];
 
-        await querySnapshot.docs.forEach((document, index) => {
-          merchantIds.push(document.id);
-        });
-
-        return merchantIds;
+      await querySnapshot.docs.forEach((document, index) => {
+        merchantIds.push(document.id);
       });
-  });
 
-exports.editUserStoreRoles = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+      return merchantIds;
+    });
+});
+
+exports.editUserStoreRoles = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { roles, userId, storeId } = data;
 
     if (context.auth.token.role !== "marketeer-admin") {
@@ -209,11 +207,11 @@ exports.editUserStoreRoles = functions
           })}) for ${storeId} to ${userId}!`,
         };
       });
-  });
+  }
+);
 
-exports.setUserAsMerchant = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.setUserAsMerchant = functionsRegionHttps.onCall(
+  async (data, context) => {
     const {
       userId,
       storeId,
@@ -317,11 +315,11 @@ exports.setUserAsMerchant = functions
             };
           });
       });
-  });
+  }
+);
 
-exports.assignStoreToMerchant = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.assignStoreToMerchant = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { userId, storeId } = data;
 
     if (context.auth.token.role !== "marketeer-admin") {
@@ -354,11 +352,11 @@ exports.assignStoreToMerchant = functions
           m: `Successfully assigned store ID "${storeId}" to ${userId}!`,
         };
       });
-  });
+  }
+);
 
-exports.getUserFromEmail = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.getUserFromEmail = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { email } = data;
 
     if (context.auth.token.role !== "marketeer-admin") {
@@ -370,11 +368,11 @@ exports.getUserFromEmail = functions
     }
 
     return admin.auth().getUserByEmail(email);
-  });
+  }
+);
 
-exports.getUserFromUserId = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.getUserFromUserId = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { userIds } = data;
 
     if (context.auth.token.role !== "marketeer-admin") {
@@ -386,11 +384,11 @@ exports.getUserFromUserId = functions
     }
 
     return admin.auth().getUsers(userIds);
-  });
+  }
+);
 
-exports.createStoreEmployeeAccount = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.createStoreEmployeeAccount = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { email, password, role, storeId } = data;
 
     if (context.auth.token.role !== "marketeer-admin") {
@@ -445,7 +443,8 @@ exports.createStoreEmployeeAccount = functions
     } catch (error) {
       return { s: 400, m: error };
     }
-  });
+  }
+);
 
 exports.setMarketeerAdminToken = functions
   .region("asia-northeast1")
@@ -523,9 +522,8 @@ exports.setMarketeerAdminToken = functions
     }
   });
 
-exports.editUserStoreRoles = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.editUserStoreRoles = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { roles, userId, storeId } = data;
 
     if (context.auth.token.role !== "marketeer-admin") {
@@ -570,4 +568,5 @@ exports.editUserStoreRoles = functions
           })}) for ${storeId} to ${userId}!`,
         };
       });
-  });
+  }
+);

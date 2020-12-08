@@ -173,7 +173,7 @@ exports.createDisbursementInvoicePdf = ({
   mrspeedy,
   onlineBanking,
 }) => {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const fileRef = admin.storage().bucket().file(`${filePath}${fileName}`);
 
     const pdfDoc = printer.createPdfKitDocument(
@@ -192,14 +192,14 @@ exports.createDisbursementInvoicePdf = ({
         onlineBanking,
         onlineBankingTotalRevenueShare,
         onlineBankingTotalAmountPayable,
-        formattedDragonpayOrders: await getFormattedDragonpayOrders({
+        formattedDragonpayOrders: getFormattedDragonpayOrders({
           dragonpayOrders,
           stores,
         }),
         mrspeedy,
         mrspeedyTotalRevenueShare,
         mrspeedyTotalAmountPayable,
-        formattedMrspeedyOrders: await getFormattedMrspeedyOrders({
+        formattedMrspeedyOrders: getFormattedMrspeedyOrders({
           mrspeedyOrders,
           stores,
         }),

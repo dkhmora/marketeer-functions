@@ -1,10 +1,11 @@
 {
   "parserOptions": {
     // Required for certain syntax usages
-    "ecmaVersion": 2019
+    "ecmaVersion": 12
   },
   "plugins": ["promise"],
   "extends": "eslint:recommended",
+  "env": { "es2020": true },
   "rules": {
     // Removed rule "disallow the use of console" from recommended eslint rules
     "no-console": "off",

@@ -1,20 +1,21 @@
 const firebase = require("firebase");
 const functions = require("firebase-functions");
 const { db, admin } = require("./util/admin");
+const { functionsRegionHttps } = require("./util/config");
 
-exports.signInWithPhoneAndPassword = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
-    const phoneNumber = data.phone;
-    if (phoneNumber === undefined) {
+exports.signInWithPhoneAndPassword = functionsRegionHttps.onCall(
+  async (data, context) => {
+    const { phoneNumber, phone, password } = data;
+    if (phoneNumber === undefined || password === undefined) {
       return { s: 400, m: "Bad argument: no phone number" };
     }
 
-    try {
-      const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
-      const pass = data.password;
+    const mainPhoneNumber = phone || phoneNumber;
 
-      await firebase.auth().signInWithEmailAndPassword(user.email, pass);
+    try {
+      const user = await admin.auth().getUserByPhoneNumber(mainPhoneNumber);
+
+      await firebase.auth().signInWithEmailAndPassword(user.email, password);
 
       const token = await admin
         .auth()
@@ -24,11 +25,11 @@ exports.signInWithPhoneAndPassword = functions
     } catch (e) {
       return { s: 400, m: "Wrong phone number or password. Please try again." };
     }
-  });
+  }
+);
 
-exports.sendPasswordResetLinkToStoreUser = functions
-  .region("asia-northeast1")
-  .https.onCall(async (data, context) => {
+exports.sendPasswordResetLinkToStoreUser = functionsRegionHttps.onCall(
+  async (data, context) => {
     const { email } = data;
 
     try {
@@ -58,4 +59,5 @@ exports.sendPasswordResetLinkToStoreUser = functions
     }
 
     return { s: 200, m: `Password reset link successfully sent to ${email}!` };
-  });
+  }
+);
