@@ -498,6 +498,7 @@ exports.placeOrder = functions
         })
       );
     } catch (e) {
+      functions.logger.error(e);
       return { s: 400, m: `${e}` };
     }
   });
