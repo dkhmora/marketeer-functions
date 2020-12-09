@@ -9,6 +9,7 @@ const { editTransaction } = require("./payments");
 const { processStoreItems } = require("./helpers/items");
 const { getCurrentTimestamp } = require("./helpers/time");
 const { sendNotifications } = require("./helpers/messaging");
+const { getVoucherDetails } = require("./helpers/vouchers");
 
 exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
   const { voucherId } = data;
@@ -214,6 +215,8 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
               vouchersApplied,
             } = storeOptions;
 
+            functions.logger.log(storeOptions);
+
             if (!merchantId) {
               throw new Error(
                 `Sorry, a store you ordered from is currently not available. Please try again later or place another order from another store.`
@@ -368,7 +371,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                 const timeStamp = firestore.Timestamp.now().toMillis();
                 const newStoreOrderNumber = currentStoreOrderNumber + 1;
                 const newUserOrderNumber = currentUserOrderNumber + 1;
-                const deliveryDiscountApplicable =
+                const storeDeliveryDiscountApplicable =
                   storeDetails.deliveryDiscount &&
                   storeDetails.deliveryDiscount.activated &&
                   subTotal >= storeDetails.deliveryDiscount.minimumOrderAmount;
@@ -376,13 +379,52 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   deliveryMethod === "Own Delivery"
                     ? storeDeliveryMethod.deliveryPrice
                     : null;
-                const deliveryDiscount = deliveryDiscountApplicable
+                let deliveryDiscount = storeDeliveryDiscountApplicable
                   ? {
                       discountAmount:
                         storeDetails.deliveryDiscount.discountAmount,
                       type: "storeDiscount",
                     }
                   : null;
+
+                if (vouchersApplied?.delivery !== undefined) {
+                  const {
+                    maxUses,
+                    type,
+                    minimumOrderAmount,
+                    validUsers,
+                    maxClaimsReached,
+                    maxClaims,
+                    title,
+                    desciption,
+                    discount: { amount, percentage, maxAmount },
+                  } = await getVoucherDetails(vouchersApplied.delivery);
+
+                  functions.logger.log("Yes, ", title);
+
+                  const { claimedVouchers } = userData;
+
+                  const claimedVoucherUses =
+                    claimedVouchers[vouchersApplied.delivery];
+
+                  if (type !== "delivery_discount") {
+                    throw new Error(`Error: Voucher ${title} is not supported`);
+                  }
+
+                  if (claimedVoucherUses === undefined) {
+                    throw new Error(
+                      `Error: User has not claimed the applied voucher ${title}`
+                    );
+                  }
+
+                  if (claimedVoucherUses <= 0) {
+                    throw new Error(
+                      `Error: Voucher ${title} has reached maximum usage for this user`
+                    );
+                  }
+
+                  deliveryDiscount = amount;
+                }
 
                 let orderDetails = {
                   reviewed: false,
@@ -405,6 +447,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   deliveryMethod,
                   deliveryPrice,
                   deliveryDiscount,
+                  vouchersApplied,
                   paymentMethod: "COD",
                   storeId,
                   merchantId,
@@ -474,7 +517,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   orderNumber: newStoreOrderNumber,
                 });
 
-                transaction.update(userRef, {
+                const newUserData = {
                   orderNumber: newUserOrderNumber,
                   addresses: {
                     Home: {
@@ -483,7 +526,17 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                       address: deliveryAddress,
                     },
                   },
-                });
+                };
+
+                if (vouchersApplied?.delivery !== undefined) {
+                  newUserData.claimedVouchers = {
+                    [vouchersApplied.delivery]: firestore.FieldValue.increment(
+                      -1
+                    ),
+                  };
+                }
+
+                transaction.set(userRef, newUserData, { merge: true });
 
                 // Update store item document quantities
                 storeItemDocs.map(async (storeItemDoc) => {
@@ -549,9 +602,6 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
             }
 
             return { s, m };
-          })
-          .catch((e) => {
-            return { s: 500, m: e.message };
           });
       })
     );

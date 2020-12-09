@@ -19,6 +19,19 @@ async function getVoucherOrderDiscount(voucherId, subTotal) {
   return voucherData?.discount?.amount;
 }
 
+async function getVoucherDetails(voucherId, subTotal) {
+  const clientConfigRef = db.collection("application").doc("client_config");
+  const clientConfigData = (await clientConfigRef.get()).data();
+  const voucherData = clientConfigData?.vouchers?.[voucherId];
+
+  if (!voucherData) {
+    throw new Error("Voucher does not exist");
+  }
+
+  return { ...voucherData };
+}
+
 module.exports = {
   getVoucherOrderDiscount,
+  getVoucherDetails,
 };
