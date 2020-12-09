@@ -6,7 +6,7 @@ const { HERE_API_KEY, functionsRegionHttps } = require("./util/config");
 const { payment_methods } = require("./util/dragonpay");
 const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
 const { editTransaction } = require("./payments");
-const { getTotalItemOptionsPrice } = require("./helpers/items");
+const { processStoreItems } = require("./helpers/items");
 const { getCurrentTimestamp } = require("./helpers/time");
 const { sendNotifications } = require("./helpers/messaging");
 
@@ -138,156 +138,6 @@ exports.getAddressFromCoordinates = functionsRegionHttps.onCall(
   }
 );
 
-exports.placeOrderTest = functionsRegionHttps.onCall(async (data, context) => {
-  try {
-    const userRegistrationEmail = context.auth.token.email;
-    const { orderInfo } = data;
-
-    const {
-      deliveryCoordinates,
-      deliveryCoordinatesGeohash,
-      deliveryAddress,
-      userCoordinates,
-      userName,
-      cartStoreSnapshots,
-    } = JSON.parse(orderInfo);
-
-    const userId = context.auth.uid;
-    const userPhoneNumber = context.auth.token.phone_number;
-
-    if (!userId || !userPhoneNumber) {
-      throw new Error("Error: User is not authorized");
-    }
-
-    const userRef = db.collection("users").doc(userId);
-    const userCartRef = db.collection("user_carts").doc(userId);
-    const storeCartItems = (await userCartRef.get()).data();
-    const storeRefs = [];
-    const merchantRefs = [];
-    const storeItemRefs = [];
-    let storeItemDocsMap = {};
-
-    await Object.entries(storeCartItems).map(([storeId, items]) => {
-      items.map((item) => {
-        const storeItemDocs = storeItemDocsMap[storeId] || [];
-
-        if (!storeItemDocs.includes(item.doc)) {
-          storeItemRefs.push(
-            db
-              .collection("stores")
-              .doc(storeId)
-              .collection("items")
-              .doc(item.doc)
-          );
-
-          storeItemDocsMap = {
-            ...storeItemDocsMap,
-            [storeId]: [...storeItemDocs, item.doc],
-          };
-        }
-      });
-    });
-
-    if (
-      !deliveryCoordinates ||
-      !deliveryAddress ||
-      !userCoordinates ||
-      !userName ||
-      !storeCartItems ||
-      !cartStoreSnapshots
-    ) {
-      return { s: 400, m: "Bad argument: Incomplete request" };
-    }
-
-    await Object.entries(cartStoreSnapshots).map(([storeId, storeOptions]) => {
-      storeRefs.push(db.collection("stores").doc(storeId));
-      merchantRefs.push(
-        db.collection("merchants").doc(storeOptions.merchantId)
-      );
-    });
-
-    const orderStatus = {
-      pending: {
-        status: true,
-        updatedAt: firestore.Timestamp.now().toMillis(),
-      },
-      unpaid: {
-        status: false,
-      },
-      paid: {
-        status: false,
-      },
-      shipped: {
-        status: false,
-      },
-      completed: {
-        status: false,
-      },
-      cancelled: {
-        status: false,
-      },
-    };
-
-    return await db.runTransaction((transaction) => {
-      return (
-        transaction
-          .getAll(userRef, ...storeRefs, ...merchantRefs, ...storeItemRefs)
-          // eslint-disable-next-line promise/always-return
-          .then(async (documents) => {
-            const userDoc = documents[0];
-            const storeDocs = documents.slice(1, storeRefs.length);
-            const storeMerchantDocs = documents.slice(
-              storeRefs.length,
-              merchantRefs.length
-            );
-            const storeItemsDocs = documents.slice(
-              merchantRefs.length,
-              documents.length
-            );
-            let storeDataMap = {};
-            const userData = userDoc.data();
-
-            functions.logger.log("storeDocs", storeDocs);
-
-            await storeDocs.map((storeDoc, index) => {
-              const storeId = storeDoc.id;
-              const storeData = storeDoc.data();
-              const merchantRef = storeMerchantDocs.find(
-                (merchantDoc) => merchantDoc.id === storeData.merchantId
-              );
-              const merchantData = merchantRef ? merchantRef.data() : null;
-              const itemData = storeItemsDocs.filter((storeItemDoc) =>
-                storeItemDocMap[storeId].includes(storeItemDoc.id)
-              );
-
-              functions.logger.log(storeId, storeData, merchantData, itemData);
-
-              storeDataMap = {
-                ...storeDataMap,
-                [storeId]: {
-                  storeData,
-                  merchantData,
-                  itemData,
-                },
-              };
-            });
-
-            functions.logger.log("yes");
-
-            functions.logger.log("userData", userData);
-
-            functions.logger.debug("storeDataMap", storeDataMap);
-
-            return { s: 400, m: `Test` };
-          })
-      );
-    });
-  } catch (e) {
-    functions.logger.error(e);
-    return { s: 400, m: `${e}` };
-  }
-});
-
 exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
   const userRegistrationEmail = context.auth.token.email;
   const { orderInfo } = data;
@@ -312,15 +162,17 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
     const userRef = db.collection("users").doc(userId);
     const userCartRef = db.collection("user_carts").doc(userId);
 
-    const storeCartItems = (await userCartRef.get()).data();
-    const cartStores = storeCartItems ? [...Object.keys(storeCartItems)] : null;
+    const storeCartItemsMap = (await userCartRef.get()).data();
+    const cartStores = storeCartItemsMap
+      ? [...Object.keys(storeCartItemsMap)]
+      : null;
 
     if (
       !deliveryCoordinates ||
       !deliveryAddress ||
       !userCoordinates ||
       !userName ||
-      !storeCartItems ||
+      !storeCartItemsMap ||
       !cartStoreSnapshots
     ) {
       return { s: 400, m: "Bad argument: Incomplete request" };
@@ -372,7 +224,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
             const storeItemDocs = [];
             const storeItemRefs = [];
 
-            await storeCartItems[storeId].map((item) => {
+            await storeCartItemsMap[storeId].map((item) => {
               if (!storeItemDocs.includes(item.doc)) {
                 const itemRef = db
                   .collection("stores")
@@ -385,11 +237,6 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
               }
             });
 
-            const currentStoreItems = [];
-            let userData = {};
-            let storeDetails = {};
-            let merchantDetails = {};
-
             return await transaction
               .getAll(userRef, storeRef, storeMerchantRef, ...storeItemRefs)
               .then(async (documents) => {
@@ -398,9 +245,15 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                 const storeMerchantDoc = documents[2];
                 const storeItemsDocs = documents.slice(3, documents.length);
 
-                await storeItemsDocs.map((storeItemDoc) => {
-                  currentStoreItems.push(...storeItemDoc.data().items);
-                });
+                const storeItemsSnapshot = [].concat(
+                  ...storeItemsDocs.map(
+                    (storeItemDoc) => storeItemDoc.data().items
+                  )
+                );
+
+                let userData = {};
+                let storeDetails = {};
+                let merchantDetails = {};
 
                 if (userDoc.exists) {
                   userData = userDoc.data();
@@ -416,12 +269,21 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   );
                 }
 
-                if (
-                  !storeDetails.devOnly &&
-                  (!storeDetails.visibleToPublic || storeDetails.vacationMode)
-                ) {
+                const {
+                  storeName,
+                  devOnly,
+                  visibleToPublic,
+                  vacationMode,
+                  storeLocation,
+                  merchantId,
+                  creditThresholdReached,
+                  availablePaymentMethods,
+                  availableDeliveryMethods,
+                } = storeDetails;
+
+                if (!devOnly && (!visibleToPublic || vacationMode)) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} is currently on vacation. Please try again later.`
+                    `Sorry, ${storeName} is currently on vacation. Please try again later.`
                   );
                 }
 
@@ -429,33 +291,30 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   merchantDetails = storeMerchantDoc.data();
                 } else {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    `Sorry, ${storeName} is currently not available. Please try again later.`
                   );
                 }
 
-                const orderItems = storeCartItems[storeId];
                 const storeDeliveryMethod =
-                  storeDetails.availableDeliveryMethods[deliveryMethod];
+                  availableDeliveryMethods[deliveryMethod];
 
                 if (!storeDeliveryMethod || !storeDeliveryMethod.activated) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} currently does not support the delivery method ${deliveryMethod}. Please try ordering again.`
+                    `Sorry, ${storeName} currently does not support the delivery method ${deliveryMethod}. Please try ordering again.`
                   );
                 }
 
                 if (
                   (paymentMethod === "COD" &&
-                    (!storeDetails.availablePaymentMethods[paymentMethod] ||
-                      !storeDetails.availablePaymentMethods[paymentMethod]
-                        .activated)) ||
+                    (!availablePaymentMethods[paymentMethod] ||
+                      !availablePaymentMethods[paymentMethod].activated)) ||
                   (paymentMethod !== "COD" &&
-                    (!storeDetails.availablePaymentMethods["Online Banking"] ||
-                      !storeDetails.availablePaymentMethods["Online Banking"]
-                        .activated ||
+                    (!availablePaymentMethods["Online Banking"] ||
+                      !availablePaymentMethods["Online Banking"].activated ||
                       !payment_methods[paymentMethod]))
                 ) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} currently does not support the payment method ${paymentMethod}. Please try ordering again.`
+                    `Sorry, ${storeName} currently does not support the payment method ${paymentMethod}. Please try ordering again.`
                   );
                 }
 
@@ -468,30 +327,25 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
 
                 if (!Object.keys(stores).includes(storeId)) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    `Sorry, ${storeName} is currently not available. Please try again later.`
                   );
                 }
 
                 if (
-                  (storeDetails.creditThresholdReached ||
-                    credits < creditThreshold) &&
+                  (creditThresholdReached || credits < creditThreshold) &&
                   !recurringBilling
                 ) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    `Sorry, ${storeName} is currently not available. Please try again later.`
                   );
                 }
 
                 const currentUserOrderNumber = userData.orderNumber
                   ? userData.orderNumber
                   : 0;
-
                 const currentStoreOrderNumber = storeDetails.orderNumber
                   ? storeDetails.orderNumber
                   : 0;
-
-                let quantity = 0;
-                let subTotal = 0;
 
                 const userEmail =
                   paymentMethod !== "COD" ? email : userRegistrationEmail;
@@ -500,43 +354,16 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   return { s: 400, m: "Bad argument: Incomplete request" };
                 }
 
-                await orderItems.map((orderItem) => {
-                  const currentStoreItemIndex = currentStoreItems.findIndex(
-                    (storeItem) => storeItem.itemId === orderItem.itemId
-                  );
-                  const currentStoreItem =
-                    currentStoreItems[currentStoreItemIndex];
-                  const optionsPrice = getTotalItemOptionsPrice(
-                    orderItem,
-                    currentStoreItem
-                  );
-                  const itemPrice = orderItem.discountedPrice
-                    ? orderItem.discountedPrice
-                    : orderItem.price;
-                  const totalItemPrice = itemPrice + optionsPrice;
-
-                  quantity += orderItem.quantity;
-                  subTotal += totalItemPrice * orderItem.quantity;
-                  currentStoreItem.sales += orderItem.quantity;
-
-                  if (
-                    currentStoreItem.price !== orderItem.price ||
-                    currentStoreItem.discountedPrice !==
-                      orderItem.discountedPrice
-                  ) {
-                    const error = `Price for "${orderItem.name}" from "${storeDetails.storeName} has changed. Please try ordering again."`;
-                    throw new Error(error);
-                  }
-
-                  if (currentStoreItem.stock) {
-                    currentStoreItem.stock -= orderItem.quantity;
-
-                    if (currentStoreItem.stock < 0) {
-                      const error = `Not enough stocks for item "${orderItem.name}" from "${storeDetails.storeName}. Please update your cart."`;
-                      throw new Error(error);
-                    }
-                  }
-                });
+                const storeCartItems = storeCartItemsMap[storeId];
+                const {
+                  quantity,
+                  subTotal,
+                  newStoreItems,
+                } = await processStoreItems(
+                  storeCartItems,
+                  storeItemsSnapshot,
+                  storeName
+                );
 
                 const timeStamp = firestore.Timestamp.now().toMillis();
                 const newStoreOrderNumber = currentStoreOrderNumber + 1;
@@ -580,9 +407,9 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   deliveryDiscount,
                   paymentMethod: "COD",
                   storeId,
-                  merchantId: storeDetails.merchantId,
-                  storeName: storeDetails.storeName,
-                  storeLocation: storeDetails.storeLocation,
+                  merchantId,
+                  storeName,
+                  storeLocation,
                   storeOrderNumber: newStoreOrderNumber,
                   merchantOrderNumber: newStoreOrderNumber,
                   userOrderNumber: newUserOrderNumber,
@@ -600,7 +427,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   const points = [
                     {
                       address: storeDetails.address,
-                      ...storeDetails.storeLocation,
+                      ...storeLocation,
                     },
                     {
                       address: deliveryAddress,
@@ -628,7 +455,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
 
                 // Place order
                 transaction.set(orderItemsRef.doc(orderId), {
-                  items: orderItems,
+                  items: storeCartItems,
                   storeId,
                   userId,
                   updatedAt: timeStamp,
@@ -660,7 +487,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
 
                 // Update store item document quantities
                 storeItemDocs.map(async (storeItemDoc) => {
-                  const docItems = await currentStoreItems.filter(
+                  const docItems = await newStoreItems.filter(
                     (item) => item.doc === storeItemDoc
                   );
                   const storeItemDocRef = db
