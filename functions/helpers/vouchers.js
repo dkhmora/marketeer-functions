@@ -23,7 +23,6 @@ async function getVoucherOrderDiscount(voucherId, subTotal) {
 
 async function getVoucherDetails(voucherId, subTotal) {
   if (voucherId && voucherId !== undefined) {
-    console.log("hgaha", voucherId);
     const clientConfigRef = db.collection("application").doc("client_config");
     const clientConfigData = (await clientConfigRef.get()).data();
     const voucherData = clientConfigData?.vouchers?.[voucherId];
