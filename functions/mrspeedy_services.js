@@ -15,10 +15,10 @@ const {
   getCurrentTimestamp,
 } = require("./helpers/time");
 const moment = require("moment");
-const { functionsRegionHttps } = require("./util/config");
 
-exports.getUserMrSpeedyDeliveryPriceEstimate = functionsRegionHttps.onCall(
-  async (data, context) => {
+exports.getUserMrSpeedyDeliveryPriceEstimate = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const { deliveryLocation, deliveryAddress } = data;
     const { uid, token } = context.auth;
     const { phone_number } = token;
@@ -77,11 +77,11 @@ exports.getUserMrSpeedyDeliveryPriceEstimate = functionsRegionHttps.onCall(
       functions.logger.error(e);
       return { s: 500, m: "Error: Something went wrong" };
     }
-  }
-);
+  });
 
-exports.getMerchantMrSpeedyDeliveryPriceEstimate = functionsRegionHttps.onCall(
-  async (data, context) => {
+exports.getMerchantMrSpeedyDeliveryPriceEstimate = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const {
       subTotal,
       deliveryLocation,
@@ -124,11 +124,11 @@ exports.getMerchantMrSpeedyDeliveryPriceEstimate = functionsRegionHttps.onCall(
       functions.logger.error(e);
       return { s: 500, m: "Error: Something went wrong" };
     }
-  }
-);
+  });
 
-exports.getMrSpeedyCourierInfo = functionsRegionHttps.onCall(
-  async (data, context) => {
+exports.getMrSpeedyCourierInfo = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const { mrspeedyOrderId } = data;
 
     if (!context.auth.token.storeIds && !context.auth.token.phone_number) {
@@ -150,11 +150,11 @@ exports.getMrSpeedyCourierInfo = functionsRegionHttps.onCall(
       functions.logger.error(e);
       return { s: 500, m: "Error: Something went wrong" };
     }
-  }
-);
+  });
 
-exports.rebookMrSpeedyBooking = functionsRegionHttps.onCall(
-  async (data, context) => {
+exports.rebookMrSpeedyBooking = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const { mrspeedyRebookingData, orderId } = data;
 
     if (!context.auth.token.storeIds) {
@@ -328,11 +328,11 @@ exports.rebookMrSpeedyBooking = functionsRegionHttps.onCall(
       functions.logger.error(e);
       return { s: 500, m: e };
     }
-  }
-);
+  });
 
-exports.cancelMrSpeedyOrder = functionsRegionHttps.onCall(
-  async (data, context) => {
+exports.cancelMrSpeedyOrder = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const { orderId } = data;
 
     if (!context.auth.token.storeIds) {
@@ -388,8 +388,7 @@ exports.cancelMrSpeedyOrder = functionsRegionHttps.onCall(
       functions.logger.error(e);
       return { s: 500, m: e };
     }
-  }
-);
+  });
 
 exports.mrspeedyNotification = async (req, res) => {
   const { headers, body } = req;

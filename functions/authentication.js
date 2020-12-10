@@ -1,21 +1,20 @@
 const firebase = require("firebase");
 const functions = require("firebase-functions");
 const { db, admin } = require("./util/admin");
-const { functionsRegionHttps } = require("./util/config");
 
-exports.signInWithPhoneAndPassword = functionsRegionHttps.onCall(
-  async (data, context) => {
-    const { phoneNumber, phone, password } = data;
-    if (phoneNumber === undefined || password === undefined) {
+exports.signInWithPhoneAndPassword = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
+    const phoneNumber = data.phone;
+    if (phoneNumber === undefined) {
       return { s: 400, m: "Bad argument: no phone number" };
     }
 
-    const mainPhoneNumber = phone || phoneNumber;
-
     try {
-      const user = await admin.auth().getUserByPhoneNumber(mainPhoneNumber);
+      const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
+      const pass = data.password;
 
-      await firebase.auth().signInWithEmailAndPassword(user.email, password);
+      await firebase.auth().signInWithEmailAndPassword(user.email, pass);
 
       const token = await admin
         .auth()
@@ -23,14 +22,13 @@ exports.signInWithPhoneAndPassword = functionsRegionHttps.onCall(
 
       return { s: 200, t: token };
     } catch (e) {
-      functions.logger.error(e);
       return { s: 400, m: "Wrong phone number or password. Please try again." };
     }
-  }
-);
+  });
 
-exports.sendPasswordResetLinkToStoreUser = functionsRegionHttps.onCall(
-  async (data, context) => {
+exports.sendPasswordResetLinkToStoreUser = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const { email } = data;
 
     try {
@@ -56,10 +54,8 @@ exports.sendPasswordResetLinkToStoreUser = functionsRegionHttps.onCall(
 
       await firebase.auth().sendPasswordResetEmail(email);
     } catch (e) {
-      functions.logger.error(e);
       return { s: 400, m: "Error, something went wrong" };
     }
 
     return { s: 200, m: `Password reset link successfully sent to ${email}!` };
-  }
-);
+  });

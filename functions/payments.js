@@ -12,7 +12,7 @@ const {
   requestPaymentOperation,
   payment_methods,
 } = require("./util/dragonpay");
-const { DEV_MODE, functionsRegionHttps } = require("./util/config");
+const { DEV_MODE } = require("./util/config");
 const {
   getCurrentWeeklyPeriodFromTimestamp,
   getCurrentTimestamp,
@@ -120,8 +120,9 @@ exports.getAvailablePaymentProcessors = functions
       });
   });
 
-exports.getMerchantTopUpPaymentLink = functionsRegionHttps.onCall(
-  async (data, context) => {
+exports.getMerchantTopUpPaymentLink = functions
+  .region("asia-northeast1")
+  .https.onCall(async (data, context) => {
     const { uid, role } = context.auth.token;
     const userId = uid;
 
@@ -180,8 +181,7 @@ exports.getMerchantTopUpPaymentLink = functionsRegionHttps.onCall(
 
         return { s: 400, m: err.message };
       });
-  }
-);
+  });
 
 exports.editTransaction = async ({ operation, txnId }) => {
   const operationLink = (await requestPaymentOperation({ operation, txnId }))
