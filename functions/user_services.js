@@ -6,9 +6,11 @@ const { HERE_API_KEY, functionsRegionHttps } = require("./util/config");
 const { payment_methods } = require("./util/dragonpay");
 const { getOrderPriceEstimateRange } = require("./util/mrspeedy");
 const { editTransaction } = require("./payments");
-const { getTotalItemOptionsPrice } = require("./helpers/items");
+const { processStoreItems } = require("./helpers/items");
 const { getCurrentTimestamp } = require("./helpers/time");
 const { sendNotifications } = require("./helpers/messaging");
+const { getAppliedVoucherDetails } = require("./helpers/vouchers");
+const { default: fetch } = require("node-fetch");
 
 exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
   const { voucherId } = data;
@@ -36,11 +38,13 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
           const { vouchers } = clientConfigData;
 
           if (claimedVouchers?.[voucherId] !== undefined) {
-            throw new Error(`The voucher is already claimed by the user.`);
+            throw new Error(
+              `Error: The voucher is already claimed by the user.`
+            );
           }
 
           if (vouchers?.[voucherId] === undefined) {
-            throw new Error(`The voucher does not exist.`);
+            throw new Error(`Error: The voucher does not exist.`);
           }
 
           const { claims, maxClaims, maxUses, title } = vouchers?.[
@@ -52,7 +56,7 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
           };
 
           if (maxClaims <= claims) {
-            throw new Error(`The voucher is out of stock`);
+            throw new Error(`Error: The voucher is out of stock`);
           }
 
           transaction.set(
@@ -131,6 +135,7 @@ exports.getAddressFromCoordinates = functionsRegionHttps.onCall(
           });
       });
     } catch (e) {
+      functions.logger.error(e);
       return { s: 400, m: "Error, something went wrong." };
     }
 
@@ -162,15 +167,17 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
     const userRef = db.collection("users").doc(userId);
     const userCartRef = db.collection("user_carts").doc(userId);
 
-    const storeCartItems = (await userCartRef.get()).data();
-    const cartStores = storeCartItems ? [...Object.keys(storeCartItems)] : null;
+    const storeCartItemsMap = (await userCartRef.get()).data();
+    const cartStores = storeCartItemsMap
+      ? [...Object.keys(storeCartItemsMap)]
+      : null;
 
     if (
       !deliveryCoordinates ||
       !deliveryAddress ||
       !userCoordinates ||
       !userName ||
-      !storeCartItems ||
+      !storeCartItemsMap ||
       !cartStoreSnapshots
     ) {
       return { s: 400, m: "Bad argument: Incomplete request" };
@@ -209,7 +216,10 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
               email,
               deliveryMethod,
               paymentMethod,
+              vouchersApplied,
             } = storeOptions;
+
+            functions.logger.log(storeOptions);
 
             if (!merchantId) {
               throw new Error(
@@ -221,7 +231,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
             const storeItemDocs = [];
             const storeItemRefs = [];
 
-            await storeCartItems[storeId].map((item) => {
+            await storeCartItemsMap[storeId].map((item) => {
               if (!storeItemDocs.includes(item.doc)) {
                 const itemRef = db
                   .collection("stores")
@@ -234,11 +244,6 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
               }
             });
 
-            const currentStoreItems = [];
-            let userData = {};
-            let storeDetails = {};
-            let merchantDetails = {};
-
             return await transaction
               .getAll(userRef, storeRef, storeMerchantRef, ...storeItemRefs)
               .then(async (documents) => {
@@ -247,9 +252,15 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                 const storeMerchantDoc = documents[2];
                 const storeItemsDocs = documents.slice(3, documents.length);
 
-                await storeItemsDocs.map((storeItemDoc) => {
-                  currentStoreItems.push(...storeItemDoc.data().items);
-                });
+                const storeItemsSnapshot = [].concat(
+                  ...storeItemsDocs.map(
+                    (storeItemDoc) => storeItemDoc.data().items
+                  )
+                );
+
+                let userData = {};
+                let storeDetails = {};
+                let merchantDetails = {};
 
                 if (userDoc.exists) {
                   userData = userDoc.data();
@@ -265,12 +276,23 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   );
                 }
 
-                if (
-                  !storeDetails.devOnly &&
-                  (!storeDetails.visibleToPublic || storeDetails.vacationMode)
-                ) {
+                const {
+                  storeName,
+                  devOnly,
+                  visibleToPublic,
+                  vacationMode,
+                  storeLocation,
+                  merchantId,
+                  creditThresholdReached,
+                  availablePaymentMethods,
+                  availableDeliveryMethods,
+                } = storeDetails;
+
+                const { claimedVouchers } = userData;
+
+                if (!devOnly && (!visibleToPublic || vacationMode)) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} is currently on vacation. Please try again later.`
+                    `Sorry, ${storeName} is currently on vacation. Please try again later.`
                   );
                 }
 
@@ -278,33 +300,30 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   merchantDetails = storeMerchantDoc.data();
                 } else {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    `Sorry, ${storeName} is currently not available. Please try again later.`
                   );
                 }
 
-                const orderItems = storeCartItems[storeId];
                 const storeDeliveryMethod =
-                  storeDetails.availableDeliveryMethods[deliveryMethod];
+                  availableDeliveryMethods[deliveryMethod];
 
                 if (!storeDeliveryMethod || !storeDeliveryMethod.activated) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} currently does not support the delivery method ${deliveryMethod}. Please try ordering again.`
+                    `Sorry, ${storeName} currently does not support the delivery method ${deliveryMethod}. Please try ordering again.`
                   );
                 }
 
                 if (
                   (paymentMethod === "COD" &&
-                    (!storeDetails.availablePaymentMethods[paymentMethod] ||
-                      !storeDetails.availablePaymentMethods[paymentMethod]
-                        .activated)) ||
+                    (!availablePaymentMethods[paymentMethod] ||
+                      !availablePaymentMethods[paymentMethod].activated)) ||
                   (paymentMethod !== "COD" &&
-                    (!storeDetails.availablePaymentMethods["Online Banking"] ||
-                      !storeDetails.availablePaymentMethods["Online Banking"]
-                        .activated ||
+                    (!availablePaymentMethods["Online Banking"] ||
+                      !availablePaymentMethods["Online Banking"].activated ||
                       !payment_methods[paymentMethod]))
                 ) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} currently does not support the payment method ${paymentMethod}. Please try ordering again.`
+                    `Sorry, ${storeName} currently does not support the payment method ${paymentMethod}. Please try ordering again.`
                   );
                 }
 
@@ -317,30 +336,25 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
 
                 if (!Object.keys(stores).includes(storeId)) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    `Sorry, ${storeName} is currently not available. Please try again later.`
                   );
                 }
 
                 if (
-                  (storeDetails.creditThresholdReached ||
-                    credits < creditThreshold) &&
+                  (creditThresholdReached || credits < creditThreshold) &&
                   !recurringBilling
                 ) {
                   throw new Error(
-                    `Sorry, ${storeDetails.storeName} is currently not available. Please try again later.`
+                    `Sorry, ${storeName} is currently not available. Please try again later.`
                   );
                 }
 
                 const currentUserOrderNumber = userData.orderNumber
                   ? userData.orderNumber
                   : 0;
-
                 const currentStoreOrderNumber = storeDetails.orderNumber
                   ? storeDetails.orderNumber
                   : 0;
-
-                let quantity = 0;
-                let subTotal = 0;
 
                 const userEmail =
                   paymentMethod !== "COD" ? email : userRegistrationEmail;
@@ -349,48 +363,21 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   return { s: 400, m: "Bad argument: Incomplete request" };
                 }
 
-                await orderItems.map((orderItem) => {
-                  const currentStoreItemIndex = currentStoreItems.findIndex(
-                    (storeItem) => storeItem.itemId === orderItem.itemId
-                  );
-                  const currentStoreItem =
-                    currentStoreItems[currentStoreItemIndex];
-                  const optionsPrice = getTotalItemOptionsPrice(
-                    orderItem,
-                    currentStoreItem
-                  );
-                  const itemPrice = orderItem.discountedPrice
-                    ? orderItem.discountedPrice
-                    : orderItem.price;
-                  const totalItemPrice = itemPrice + optionsPrice;
-
-                  quantity += orderItem.quantity;
-                  subTotal += totalItemPrice * orderItem.quantity;
-                  currentStoreItem.sales += orderItem.quantity;
-
-                  if (
-                    currentStoreItem.price !== orderItem.price ||
-                    currentStoreItem.discountedPrice !==
-                      orderItem.discountedPrice
-                  ) {
-                    const error = `Price for "${orderItem.name}" from "${storeDetails.storeName} has changed. Please try ordering again."`;
-                    throw new Error(error);
-                  }
-
-                  if (currentStoreItem.stock) {
-                    currentStoreItem.stock -= orderItem.quantity;
-
-                    if (currentStoreItem.stock < 0) {
-                      const error = `Not enough stocks for item "${orderItem.name}" from "${storeDetails.storeName}. Please update your cart."`;
-                      throw new Error(error);
-                    }
-                  }
-                });
+                const storeCartItems = storeCartItemsMap[storeId];
+                const {
+                  quantity,
+                  subTotal,
+                  newStoreItems,
+                } = await processStoreItems(
+                  storeCartItems,
+                  storeItemsSnapshot,
+                  storeName
+                );
 
                 const timeStamp = firestore.Timestamp.now().toMillis();
                 const newStoreOrderNumber = currentStoreOrderNumber + 1;
                 const newUserOrderNumber = currentUserOrderNumber + 1;
-                const deliveryDiscountApplicable =
+                const storeDeliveryDiscountApplicable =
                   storeDetails.deliveryDiscount &&
                   storeDetails.deliveryDiscount.activated &&
                   subTotal >= storeDetails.deliveryDiscount.minimumOrderAmount;
@@ -398,9 +385,14 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   deliveryMethod === "Own Delivery"
                     ? storeDeliveryMethod.deliveryPrice
                     : null;
-                const deliveryDiscount = deliveryDiscountApplicable
+                const deliveryDiscount = storeDeliveryDiscountApplicable
                   ? storeDetails.deliveryDiscount.discountAmount
                   : null;
+                const marketeerVoucherDetails = await getAppliedVoucherDetails(
+                  vouchersApplied,
+                  subTotal,
+                  claimedVouchers
+                );
 
                 let orderDetails = {
                   reviewed: false,
@@ -423,47 +415,40 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   deliveryMethod,
                   deliveryPrice,
                   deliveryDiscount,
+                  marketeerVoucherDetails,
                   paymentMethod: "COD",
                   storeId,
-                  merchantId: storeDetails.merchantId,
-                  storeName: storeDetails.storeName,
-                  storeLocation: storeDetails.storeLocation,
+                  merchantId,
+                  storeName,
+                  storeLocation,
                   storeOrderNumber: newStoreOrderNumber,
                   merchantOrderNumber: newStoreOrderNumber,
                   userOrderNumber: newUserOrderNumber,
                 };
 
-                if (
-                  paymentMethod !== "COD" &&
-                  paymentMethod !== "Online Payment"
-                ) {
+                if (paymentMethod !== "COD") {
                   orderDetails.processId = paymentMethod;
                   orderDetails.paymentMethod = "Online Banking";
-                }
 
-                if (deliveryMethod === "Mr. Speedy") {
-                  const points = [
-                    {
-                      address: storeDetails.address,
-                      ...storeDetails.storeLocation,
-                    },
-                    {
-                      address: deliveryAddress,
-                      latitude: deliveryCoordinates.latitude,
-                      longitude: deliveryCoordinates.longitude,
-                    },
-                  ];
+                  if (deliveryMethod === "Mr. Speedy") {
+                    const points = [
+                      {
+                        address: storeDetails.address,
+                        ...storeLocation,
+                      },
+                      {
+                        address: deliveryAddress,
+                        latitude: deliveryCoordinates.latitude,
+                        longitude: deliveryCoordinates.longitude,
+                      },
+                    ];
 
-                  orderDetails.mrspeedyBookingData = {
-                    estimatedOrderPrices: await getOrderPriceEstimateRange({
-                      points,
-                      subTotal,
-                    }),
-                  };
-
-                  if (paymentMethod === "COD") {
-                    orderDetails.mrspeedyBookingData.estimatedOrderPrices.motorbike += 30;
-                    orderDetails.mrspeedyBookingData.estimatedOrderPrices.car += 30;
+                    orderDetails.mrspeedyBookingData = {
+                      estimatedOrderPrices: await getOrderPriceEstimateRange({
+                        points,
+                        subTotal,
+                      }),
+                    };
                   }
                 }
 
@@ -473,7 +458,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
 
                 // Place order
                 transaction.set(orderItemsRef.doc(orderId), {
-                  items: orderItems,
+                  items: storeCartItems,
                   storeId,
                   userId,
                   updatedAt: timeStamp,
@@ -492,7 +477,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   orderNumber: newStoreOrderNumber,
                 });
 
-                transaction.update(userRef, {
+                const newUserData = {
                   orderNumber: newUserOrderNumber,
                   addresses: {
                     Home: {
@@ -501,11 +486,21 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                       address: deliveryAddress,
                     },
                   },
-                });
+                };
+
+                if (vouchersApplied?.delivery !== undefined) {
+                  newUserData.claimedVouchers = {
+                    [vouchersApplied.delivery]: firestore.FieldValue.increment(
+                      -1
+                    ),
+                  };
+                }
+
+                transaction.set(userRef, newUserData, { merge: true });
 
                 // Update store item document quantities
                 storeItemDocs.map(async (storeItemDoc) => {
-                  const docItems = await currentStoreItems.filter(
+                  const docItems = await newStoreItems.filter(
                     (item) => item.doc === storeItemDoc
                   );
                   const storeItemDocRef = db
@@ -567,9 +562,6 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
             }
 
             return { s, m };
-          })
-          .catch((e) => {
-            return { s: 500, m: e.message };
           });
       })
     );
@@ -720,6 +712,7 @@ exports.cancelOrder = functionsRegionHttps.onCall(async (data, context) => {
         return { s: 200, m: "Order successfully cancelled!" };
       });
   } catch (e) {
+    functions.logger.error(e);
     return { s: 400, m: e.message };
   }
 });
@@ -819,6 +812,7 @@ exports.addReview = functionsRegionHttps.onCall(async (data, context) => {
       });
     });
   } catch (e) {
+    functions.logger.error(e);
     return { s: 400, m: e };
   }
 });

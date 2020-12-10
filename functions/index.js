@@ -22,6 +22,7 @@ const {
   sendMessageNotification,
   createAccountDocument,
   claimVoucher,
+  placeOrderTest,
 } = require("./user_services");
 const {
   changeOrderStatus,
@@ -131,3 +132,6 @@ exports.rebookMrSpeedyBooking = rebookMrSpeedyBooking;
 mrspeedyApp.post("/order/update", mrspeedyNotification);
 
 exports.mrspeedy = functionsRegionHttps.onRequest(mrspeedyApp);
+
+// DEV TEST
+exports.placeOrderTest = placeOrderTest;

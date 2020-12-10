@@ -493,6 +493,7 @@ exports.changeOrderStatus = functionsRegionHttps.onCall(
           });
       });
     } catch (e) {
+      functions.logger.error(e);
       return { s: 400, m: `Error, something went wrong: ${e}` };
     }
   }
@@ -587,6 +588,7 @@ exports.addStoreItem = functionsRegionHttps.onCall(async (data, context) => {
         });
     }
   } catch (e) {
+    functions.logger.error(e);
     return { s: 400, m: e };
   }
 });
@@ -651,6 +653,7 @@ exports.setStoreDeliveryArea = functionsRegionHttps.onCall(
         };
       });
     } catch (e) {
+      functions.logger.error(e);
       return { s: 400, m: e };
     }
   }

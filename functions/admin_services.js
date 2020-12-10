@@ -55,6 +55,7 @@ exports.merchantFormatConvert = async (req, res) => {
           .set({ items: newItems }, { merge: true });
       });
   } catch (e) {
+    functions.logger.error(e);
     res.status(500).json({ m: e });
   }
 };
@@ -137,6 +138,7 @@ exports.executeNewDeliveryFormat = async (req, res) => {
         });
       });
   } catch (e) {
+    functions.logger.error(e);
     res.status(500).json({ m: e });
   }
 };

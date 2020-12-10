@@ -24,7 +24,8 @@ async function sendNotifications(title, body, fcmTokens, data) {
 
       res();
     } catch (e) {
-      rej(e.message);
+      functions.logger.error(e);
+      rej(e);
     }
   });
 }
