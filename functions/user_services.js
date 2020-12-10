@@ -38,11 +38,13 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
           const { vouchers } = clientConfigData;
 
           if (claimedVouchers?.[voucherId] !== undefined) {
-            throw new Error(`The voucher is already claimed by the user.`);
+            throw new Error(
+              `Error: The voucher is already claimed by the user.`
+            );
           }
 
           if (vouchers?.[voucherId] === undefined) {
-            throw new Error(`The voucher does not exist.`);
+            throw new Error(`Error: The voucher does not exist.`);
           }
 
           const { claims, maxClaims, maxUses, title } = vouchers?.[
@@ -54,7 +56,7 @@ exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
           };
 
           if (maxClaims <= claims) {
-            throw new Error(`The voucher is out of stock`);
+            throw new Error(`Error: The voucher is out of stock`);
           }
 
           transaction.set(
@@ -424,37 +426,29 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   userOrderNumber: newUserOrderNumber,
                 };
 
-                if (
-                  paymentMethod !== "COD" &&
-                  paymentMethod !== "Online Payment"
-                ) {
+                if (paymentMethod !== "COD") {
                   orderDetails.processId = paymentMethod;
                   orderDetails.paymentMethod = "Online Banking";
-                }
 
-                if (deliveryMethod === "Mr. Speedy") {
-                  const points = [
-                    {
-                      address: storeDetails.address,
-                      ...storeLocation,
-                    },
-                    {
-                      address: deliveryAddress,
-                      latitude: deliveryCoordinates.latitude,
-                      longitude: deliveryCoordinates.longitude,
-                    },
-                  ];
+                  if (deliveryMethod === "Mr. Speedy") {
+                    const points = [
+                      {
+                        address: storeDetails.address,
+                        ...storeLocation,
+                      },
+                      {
+                        address: deliveryAddress,
+                        latitude: deliveryCoordinates.latitude,
+                        longitude: deliveryCoordinates.longitude,
+                      },
+                    ];
 
-                  orderDetails.mrspeedyBookingData = {
-                    estimatedOrderPrices: await getOrderPriceEstimateRange({
-                      points,
-                      subTotal,
-                    }),
-                  };
-
-                  if (paymentMethod === "COD") {
-                    orderDetails.mrspeedyBookingData.estimatedOrderPrices.motorbike += 30;
-                    orderDetails.mrspeedyBookingData.estimatedOrderPrices.car += 30;
+                    orderDetails.mrspeedyBookingData = {
+                      estimatedOrderPrices: await getOrderPriceEstimateRange({
+                        points,
+                        subTotal,
+                      }),
+                    };
                   }
                 }
 

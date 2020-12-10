@@ -49,6 +49,7 @@ let payment_methods = {
   BPIA: { paymentGatewayFee: 10, disabled: false },
   DPAY: { paymentGatewayFee: 10, disabled: false },
   MLH: { paymentGatewayFee: 20, disabled: false },
+  BOG: { paymentGatewayFee: 10, disabled: false },
 };
 
 if (DEV_MODE) {
