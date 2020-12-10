@@ -23,6 +23,7 @@ exports.signInWithPhoneAndPassword = functionsRegionHttps.onCall(
 
       return { s: 200, t: token };
     } catch (e) {
+      functions.logger.error(e);
       return { s: 400, m: "Wrong phone number or password. Please try again." };
     }
   }
@@ -55,6 +56,7 @@ exports.sendPasswordResetLinkToStoreUser = functionsRegionHttps.onCall(
 
       await firebase.auth().sendPasswordResetEmail(email);
     } catch (e) {
+      functions.logger.error(e);
       return { s: 400, m: "Error, something went wrong" };
     }
 

@@ -10,6 +10,7 @@ const { processStoreItems } = require("./helpers/items");
 const { getCurrentTimestamp } = require("./helpers/time");
 const { sendNotifications } = require("./helpers/messaging");
 const { getVoucherDetails } = require("./helpers/vouchers");
+const { default: fetch } = require("node-fetch");
 
 exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
   const { voucherId } = data;
@@ -132,6 +133,7 @@ exports.getAddressFromCoordinates = functionsRegionHttps.onCall(
           });
       });
     } catch (e) {
+      functions.logger.error(e);
       return { s: 400, m: "Error, something went wrong." };
     }
 
@@ -752,6 +754,7 @@ exports.cancelOrder = functionsRegionHttps.onCall(async (data, context) => {
         return { s: 200, m: "Order successfully cancelled!" };
       });
   } catch (e) {
+    functions.logger.error(e);
     return { s: 400, m: e.message };
   }
 });
@@ -851,6 +854,7 @@ exports.addReview = functionsRegionHttps.onCall(async (data, context) => {
       });
     });
   } catch (e) {
+    functions.logger.error(e);
     return { s: 400, m: e };
   }
 });
