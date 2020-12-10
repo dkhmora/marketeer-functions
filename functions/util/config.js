@@ -41,4 +41,12 @@ const DEV_MODE =
 
 const SECRET_PROJECT_ID = DEV_MODE ? "1053004746180" : "1549607298";
 
-module.exports = { FB_CONFIG, HERE_API_KEY, SECRET_PROJECT_ID, DEV_MODE };
+const functionsRegionHttps = functions.region("asia-northeast1").https;
+
+module.exports = {
+  FB_CONFIG,
+  HERE_API_KEY,
+  SECRET_PROJECT_ID,
+  DEV_MODE,
+  functionsRegionHttps,
+};
