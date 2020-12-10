@@ -7,15 +7,5 @@
   },
   "firestore": {
     "rules": "firestore.rules"
-  },
-  "emulators": {
-    "firestore": {
-      "port": "5000",
-      "host": "0.0.0.0"
-    },
-    "functions": {
-      "port": "5001",
-      "host": "0.0.0.0"
-    }
   }
 }

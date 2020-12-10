@@ -1,7 +1,7 @@
 {
   "projects": {
-    "prod": "marketeerph-b9653",
-    "dev": "marketeerph-development",
+    "default": "marketeerph-b9653",
+    "development": "marketeerph-development",
     "staging": "marketeerph-staging"
   }
 }
