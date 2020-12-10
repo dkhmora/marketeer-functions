@@ -9,7 +9,7 @@ const { editTransaction } = require("./payments");
 const { processStoreItems } = require("./helpers/items");
 const { getCurrentTimestamp } = require("./helpers/time");
 const { sendNotifications } = require("./helpers/messaging");
-const { getVoucherDetails } = require("./helpers/vouchers");
+const { getAppliedVoucherDetails } = require("./helpers/vouchers");
 const { default: fetch } = require("node-fetch");
 
 exports.claimVoucher = functionsRegionHttps.onCall(async (data, context) => {
@@ -286,6 +286,8 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   availableDeliveryMethods,
                 } = storeDetails;
 
+                const { claimedVouchers } = userData;
+
                 if (!devOnly && (!visibleToPublic || vacationMode)) {
                   throw new Error(
                     `Sorry, ${storeName} is currently on vacation. Please try again later.`
@@ -381,52 +383,14 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   deliveryMethod === "Own Delivery"
                     ? storeDeliveryMethod.deliveryPrice
                     : null;
-                let deliveryDiscount = storeDeliveryDiscountApplicable
-                  ? {
-                      discountAmount:
-                        storeDetails.deliveryDiscount.discountAmount,
-                      type: "storeDiscount",
-                    }
+                const deliveryDiscount = storeDeliveryDiscountApplicable
+                  ? storeDetails.deliveryDiscount.discountAmount
                   : null;
-
-                if (vouchersApplied?.delivery !== undefined) {
-                  const {
-                    maxUses,
-                    type,
-                    minimumOrderAmount,
-                    validUsers,
-                    maxClaimsReached,
-                    maxClaims,
-                    title,
-                    desciption,
-                    discount: { amount, percentage, maxAmount },
-                  } = await getVoucherDetails(vouchersApplied.delivery);
-
-                  functions.logger.log("Yes, ", title);
-
-                  const { claimedVouchers } = userData;
-
-                  const claimedVoucherUses =
-                    claimedVouchers[vouchersApplied.delivery];
-
-                  if (type !== "delivery_discount") {
-                    throw new Error(`Error: Voucher ${title} is not supported`);
-                  }
-
-                  if (claimedVoucherUses === undefined) {
-                    throw new Error(
-                      `Error: User has not claimed the applied voucher ${title}`
-                    );
-                  }
-
-                  if (claimedVoucherUses <= 0) {
-                    throw new Error(
-                      `Error: Voucher ${title} has reached maximum usage for this user`
-                    );
-                  }
-
-                  deliveryDiscount = amount;
-                }
+                const marketeerVoucherDetails = await getAppliedVoucherDetails(
+                  vouchersApplied,
+                  subTotal,
+                  claimedVouchers
+                );
 
                 let orderDetails = {
                   reviewed: false,
@@ -449,7 +413,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
                   deliveryMethod,
                   deliveryPrice,
                   deliveryDiscount,
-                  vouchersApplied,
+                  marketeerVoucherDetails,
                   paymentMethod: "COD",
                   storeId,
                   merchantId,

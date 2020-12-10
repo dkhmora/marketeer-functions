@@ -31,7 +31,63 @@ async function getVoucherDetails(voucherId, subTotal) {
   return { ...voucherData };
 }
 
+async function getAppliedVoucherDetails(
+  vouchersApplied,
+  subTotal,
+  claimedVouchers
+) {
+  let appliedVoucherDetails = { delivery: null, order: null };
+
+  if (vouchersApplied !== undefined) {
+    return Promise.all(
+      Object.entries(vouchersApplied).map(async ([voucherType, voucherId]) => {
+        const voucherData = await getVoucherDetails(voucherId);
+        const { type, minimumOrderAmount, title, maxUses } = voucherData;
+
+        const claimedVoucherRemainingUses = claimedVouchers[voucherId];
+        const usageNumber = maxUses - claimedVoucherRemainingUses + 1;
+
+        if (claimedVoucherRemainingUses === undefined) {
+          throw new Error(
+            `Error: User has not claimed the applied voucher ${title}`
+          );
+        }
+
+        if (claimedVoucherRemainingUses <= 0) {
+          throw new Error(
+            `Error: Voucher ${title} has reached maximum usage for this user`
+          );
+        }
+
+        if (minimumOrderAmount > subTotal) {
+          throw new Error(
+            `Error: Voucher ${title} has not reached the minimum order amount`
+          );
+        }
+
+        if (
+          (voucherType === "delivery" && type !== "delivery_discount") ||
+          (voucherType === "order" && type !== "order_discount")
+        ) {
+          throw new Error(`Error: Voucher ${title} is not supported`);
+        }
+
+        appliedVoucherDetails[voucherType] = {
+          ...voucherData,
+          usageNumber,
+          voucherId,
+        };
+      })
+    ).then(() => {
+      return appliedVoucherDetails;
+    });
+  }
+
+  return null;
+}
+
 module.exports = {
   getVoucherOrderDiscount,
   getVoucherDetails,
+  getAppliedVoucherDetails,
 };
