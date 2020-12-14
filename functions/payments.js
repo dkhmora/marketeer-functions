@@ -198,10 +198,12 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
     subTotal,
     transactionFee,
     deliveryMethod,
-    deliveryPrice,
+    deliveryPrice = 0,
+    deliveryDiscount = 0,
     storeName,
     storeId,
     merchantId,
+    marketeerVoucherDetails: { delivery } = {},
   } = orderData;
   const { paymentGatewayFee } = payment_methods[processId];
   const transactionDoc = db.collection("order_payments").doc(orderId);
@@ -210,9 +212,8 @@ exports.getOrderPaymentLink = async ({ orderData, orderId }) => {
       ? `Payment to ${storeName} for Order #${orderId} (Not inclusive of delivery fee)`
       : `Payment to ${storeName} for Order #${orderId} (Inclusive of delivery fee)`;
   const amount =
-    deliveryMethod === "Own Delivery" || deliveryMethod === "Mr. Speedy"
-      ? subTotal + deliveryPrice
-      : subTotal;
+    subTotal +
+    Math.max(0, deliveryPrice - delivery.discount.amount - deliveryDiscount);
 
   const paymentInput = {
     merchantId: "MARKETEERPH",

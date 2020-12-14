@@ -4,7 +4,7 @@ const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const client = new SecretManagerServiceClient();
 const { DEV_MODE, SECRET_PROJECT_ID } = require("../util/config");
 
-let payment_methods = {
+const payment_methods = {
   BDO: { paymentGatewayFee: 10, disabled: false },
   CBC: { paymentGatewayFee: 10, disabled: false },
   LBPA: { paymentGatewayFee: 10, disabled: false },
@@ -49,11 +49,8 @@ let payment_methods = {
   BPIA: { paymentGatewayFee: 10, disabled: false },
   DPAY: { paymentGatewayFee: 10, disabled: false },
   MLH: { paymentGatewayFee: 20, disabled: false },
+  BOG: DEV_MODE ? { paymentGatewayFee: 10, disabled: false } : null,
 };
-
-if (DEV_MODE) {
-  payment_methods.BOG = { paymentGatewayFee: 10, disabled: false };
-}
 
 const getDragonPaySecretKey = async () => {
   const [accessResponse] = await client.accessSecretVersion({

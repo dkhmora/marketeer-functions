@@ -6,7 +6,7 @@
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
     "start": "npm run shell",
-    "start:emulators": "firebase emulators:start --import ./firestore_projects/marketeerph-development/",
+    "start:emulators": "firebase functions:config:get > .runtimeconfig.json && firebase emulators:start --import ./firestore_projects/marketeerph-development/",
     "deploy": "firebase deploy --only functions",
     "rules:firestore": "firebase deploy --only firestore:rules",
     "rules:storage": "firebase deploy --only storage:rules",

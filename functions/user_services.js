@@ -175,7 +175,6 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
     if (
       !deliveryCoordinates ||
       !deliveryAddress ||
-      !userCoordinates ||
       !userName ||
       !storeCartItemsMap ||
       !cartStoreSnapshots
@@ -218,8 +217,6 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
               paymentMethod,
               vouchersApplied,
             } = storeOptions;
-
-            functions.logger.log(storeOptions);
 
             if (!merchantId) {
               throw new Error(
@@ -396,7 +393,7 @@ exports.placeOrder = functionsRegionHttps.onCall(async (data, context) => {
 
                 let orderDetails = {
                   reviewed: false,
-                  userCoordinates,
+                  userCoordinates: userCoordinates ? userCoordinates : null,
                   deliveryCoordinates,
                   deliveryAddress,
                   userName,
