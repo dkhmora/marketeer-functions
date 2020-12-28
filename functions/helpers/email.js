@@ -19,8 +19,8 @@ const getBusinessEmailKey = async () => {
 exports.notifyUserOfOrderConfirmation = async ({
   fileName,
   filePath,
-  userEmail,
   userName,
+  userEmail,
   dateIssued,
   additionalEmailText,
 }) => {
