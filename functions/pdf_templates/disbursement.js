@@ -11,6 +11,7 @@ const dd = ({
   onlineBanking,
   onlineBankingTotalRevenueShare,
   onlineBankingTotalAmountPayable,
+  onlineBankingTotalPurchaseAmount,
   formattedDragonpayOrders,
   mrspeedy,
   mrspeedyTotalRevenueShare,
@@ -110,7 +111,9 @@ const dd = ({
                       alignment: "right",
                     },
                     {
-                      text: mrspeedy.transactionCount,
+                      text: mrspeedy?.transactionCount
+                        ? mrspeedy.transactionCount
+                        : 0,
                       bold: true,
                       color: "#333333",
                       fontSize: 12,
@@ -302,7 +305,7 @@ const dd = ({
                 textTransform: "uppercase",
               },
               {
-                text: "7% REVENUE SHARE",
+                text: `${transactionFeePercentage}% REVENUE SHARE`,
                 fontSize: 10,
                 fillColor: "#eaf2f5",
                 border: [false, true, false, true],
@@ -326,7 +329,7 @@ const dd = ({
                 textTransform: "uppercase",
               },
               {
-                text: "AMOUNT PAYABLE LESS PG FEES AND 7% REVENUE SHARE",
+                text: `AMOUNT PAYABLE LESS PG FEES AND ${transactionFeePercentage}% REVENUE SHARE`,
                 fontSize: 10,
                 fillColor: "#eaf2f5",
                 border: [false, true, false, true],
@@ -425,7 +428,7 @@ const dd = ({
                 textTransform: "uppercase",
               },
               {
-                text: "7% REVENUE SHARE",
+                text: `${transactionFeePercentage}% REVENUE SHARE`,
                 fontSize: 10,
                 fillColor: "#eaf2f5",
                 border: [false, true, false, true],
@@ -441,8 +444,7 @@ const dd = ({
                 textTransform: "uppercase",
               },
               {
-                text:
-                  "AMOUNT PAYABLE LESS DELIVERY DISCOUNT AND 7% REVENUE SHARE",
+                text: `AMOUNT PAYABLE LESS DELIVERY DISCOUNT AND ${transactionFeePercentage}% REVENUE SHARE`,
                 fontSize: 10,
                 fillColor: "#eaf2f5",
                 border: [false, true, false, true],
@@ -507,7 +509,7 @@ const dd = ({
               },
               {
                 border: [false, true, false, true],
-                text: `₱${onlineBanking.totalAmount}`,
+                text: `₱${onlineBankingTotalPurchaseAmount}`,
                 fontSize: 10,
                 alignment: "right",
                 fillColor: "#f5f5f5",
@@ -575,7 +577,7 @@ const dd = ({
               },
               {
                 border: [false, true, false, true],
-                text: `₱${mrspeedy.totalAmount}`,
+                text: `₱${mrspeedy?.totalAmount ? mrspeedy.totalAmount : 0}`,
                 fontSize: 10,
                 alignment: "right",
                 fillColor: "#f5f5f5",
@@ -591,7 +593,11 @@ const dd = ({
                 margin: [0, 5, 0, 5],
               },
               {
-                text: `₱${mrspeedy.totalDeliveryDiscount}`,
+                text: `₱${
+                  mrspeedy?.totalDeliveryDiscount
+                    ? mrspeedy.totalDeliveryDiscount
+                    : 0
+                }`,
                 fontSize: 10,
                 border: [false, false, false, true],
                 fillColor: "#f5f5f5",

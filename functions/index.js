@@ -39,6 +39,7 @@ const {
   setMarketeerAdminToken,
   executeNewDeliveryFormat,
   merchantFormatConvert,
+  forceSendDisbursementInvoicePdfs,
 } = require("./admin_services");
 const {
   checkPayout,
@@ -100,6 +101,10 @@ exports.editUserStoreRoles = editUserStoreRoles;
 
 adminApp.post("/executeNewDeliveryFormat", executeNewDeliveryFormat);
 adminApp.post("/merchantFormatConvert", merchantFormatConvert);
+adminApp.post(
+  "/forceSendDisbursementInvoicePdfs",
+  forceSendDisbursementInvoicePdfs
+);
 
 exports.adminApi = functionsRegionHttps.onRequest(adminApp);
 

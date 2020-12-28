@@ -124,6 +124,7 @@ exports.sendDisbursementInvoicePdfs = functions
                       "==",
                       "completed"
                     )
+                    .where("paymentMethod", "==", "COD")
                     .where("updatedAt", ">=", Number(weekStart))
                     .orderBy("updatedAt", "desc")
                     .startAfter(Number(weekEnd))

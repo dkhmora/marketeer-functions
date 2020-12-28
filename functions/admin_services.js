@@ -3,6 +3,177 @@ const { firestore } = require("firebase-admin");
 const { db, admin } = require("./util/admin");
 const { getCurrentTimestamp } = require("./helpers/time");
 const { functionsRegionHttps } = require("./util/config");
+const moment = require("moment");
+const { createDisbursementInvoicePdf } = require("./helpers/pdf");
+require("moment-timezone");
+
+exports.forceSendDisbursementInvoicePdfs = async (req, res) => {
+  const {
+    headers,
+    body: { weekStartFormatted, weekEndFormatted, additionalEmailText },
+  } = req;
+
+  if (headers.pass !== "tA7#$WC#fiT&") {
+    throw new Error("Error: Password mismatch");
+  }
+
+  const timeStamp = firestore.Timestamp.now().toMillis();
+  const now = moment(timeStamp, "x");
+  const weekStart = moment(weekStartFormatted, "MMDDYYYY")
+    .tz("Etc/GMT+8")
+    .subtract(1, "weeks")
+    .weekday(6)
+    .startOf("day")
+    .format("x");
+  const weekEnd = moment(weekEndFormatted, "MMDDYYYY")
+    .tz("Etc/GMT+8")
+    .weekday(5)
+    .endOf("day")
+    .format("x");
+
+  return await db
+    .collection("merchants")
+    .where("generateInvoice", "==", true)
+    .get()
+    .then(async (querySnapshot) => {
+      const merchantIds = [];
+
+      await querySnapshot.docs.forEach((document, index) => {
+        merchantIds.push(document.id);
+      });
+
+      return merchantIds;
+    })
+    .then(async (merchantIds) => {
+      return await Promise.all(
+        merchantIds.map(async (merchantId) => {
+          const merchantData = (
+            await db.collection("merchants").doc(merchantId).get()
+          ).data();
+          const latestDisbursementData = (
+            await db
+              .collection("merchants")
+              .doc(merchantId)
+              .collection("disbursement_periods")
+              .doc(`${weekStartFormatted}-${weekEndFormatted}`)
+              .get()
+          ).data();
+
+          const { creditData, user, company, stores } = merchantData;
+          const { companyName, companyAddress } = company;
+          const { userName, userEmail } = user;
+          const { transactionFeePercentage } = creditData;
+          const companyInitials = companyName
+            .split(" ")
+            .map((i) => i.charAt(0).toUpperCase())
+            .join("");
+
+          if (latestDisbursementData) {
+            const { onlineBanking, mrspeedy } = latestDisbursementData;
+            const invoiceNumber = `${companyInitials}-${merchantId.slice(
+              -7
+            )}-${weekStartFormatted}${weekEndFormatted}-DI`;
+            const invoiceStatus = "PROCESSING PAYMENT";
+            const dateIssued = now
+              .clone()
+              .tz("Etc/GMT+8")
+              .format("MMMM DD, YYYY");
+            const fileName = `${companyName} - ${invoiceNumber}.pdf`;
+            const filePath = `merchants/${merchantId}/disbursement_invoices/`;
+
+            // eslint-disable-next-line promise/no-nesting
+            return await db
+              .collection("order_payments")
+              .where("merchantId", "==", merchantId)
+              .where("status", "==", "S")
+              .where("updatedAt", ">=", Number(weekStart))
+              .orderBy("updatedAt", "desc")
+              .startAfter(Number(weekEnd))
+              .get()
+              .then(async (querySnapshot) => {
+                const dragonpayOrders = [];
+
+                await querySnapshot.docs.forEach((documentSnapshot, index) => {
+                  const orderPayment = {
+                    ...documentSnapshot.data(),
+                    orderId: documentSnapshot.id,
+                  };
+
+                  if (orderPayment.updatedAt <= weekEnd) {
+                    dragonpayOrders.push(orderPayment);
+                  }
+                });
+
+                return {
+                  dragonpayOrders: dragonpayOrders.sort(
+                    (a, b) => a.updatedAt - b.updatedAt
+                  ),
+                };
+              })
+              .then(async ({ dragonpayOrders }) => {
+                // eslint-disable-next-line promise/no-nesting
+                return await db
+                  .collection("orders")
+                  .where("merchantId", "==", merchantId)
+                  .where("mrspeedyBookingData.order.status", "==", "completed")
+                  .where("paymentMethod", "==", "COD")
+                  .where("updatedAt", ">=", Number(weekStart))
+                  .orderBy("updatedAt", "desc")
+                  .startAfter(Number(weekEnd))
+                  .get()
+                  .then(async (querySnapshot) => {
+                    const mrspeedyOrders = [];
+
+                    await querySnapshot.docs.forEach(
+                      (documentSnapshot, index) => {
+                        const mrspeedyOrder = {
+                          ...documentSnapshot.data(),
+                          orderId: documentSnapshot.id,
+                        };
+
+                        if (mrspeedyOrder.updatedAt <= weekEnd) {
+                          mrspeedyOrders.push(mrspeedyOrder);
+                        }
+                      }
+                    );
+
+                    return {
+                      dragonpayOrders,
+                      mrspeedyOrders: mrspeedyOrders.sort(
+                        (a, b) => a.updatedAt - b.updatedAt
+                      ),
+                    };
+                  })
+                  .then(async ({ dragonpayOrders, mrspeedyOrders }) => {
+                    return await createDisbursementInvoicePdf({
+                      fileName,
+                      filePath,
+                      invoiceNumber,
+                      invoiceStatus,
+                      userName,
+                      userEmail,
+                      companyName,
+                      companyAddress,
+                      dateIssued,
+                      dragonpayOrders,
+                      mrspeedyOrders,
+                      stores,
+                      transactionFeePercentage,
+                      mrspeedy,
+                      onlineBanking,
+                      additionalEmailText,
+                    });
+                  });
+              });
+          } else {
+            functions.logger.info(
+              `No disbursement data for ${companyName} in ${weekStartFormatted}-${weekEndFormatted}`
+            );
+          }
+        })
+      );
+    });
+};
 
 exports.merchantFormatConvert = async (req, res) => {
   const { headers, body } = req;

@@ -78,6 +78,7 @@ let onlineBankingTotalAmountPayable = 0;
 let mrspeedyTotalAmountPayable = 0;
 let onlineBankingTotalRevenueShare = 0;
 let mrspeedyTotalRevenueShare = 0;
+let onlineBankingTotalPurchaseAmount = 0;
 
 const formattedDragonpayOrder = ({ order, storeName }) => {
   const {
@@ -95,6 +96,7 @@ const formattedDragonpayOrder = ({ order, storeName }) => {
   const orderAmount =
     deliveryMethod === "Own Delivery" ? subTotal + deliveryPrice : subTotal;
   const amountPayable = orderAmount - transactionFee - paymentGatewayFee;
+  onlineBankingTotalPurchaseAmount += orderAmount;
   onlineBankingTotalAmountPayable += amountPayable;
   onlineBankingTotalRevenueShare += transactionFee;
 
@@ -172,9 +174,18 @@ exports.createDisbursementInvoicePdf = ({
   transactionFeePercentage,
   mrspeedy,
   onlineBanking,
+  additionalEmailText,
 }) => {
   return new Promise((resolve, reject) => {
     const fileRef = admin.storage().bucket().file(`${filePath}${fileName}`);
+    const formattedDragonpayOrders = getFormattedDragonpayOrders({
+      dragonpayOrders,
+      stores,
+    });
+    const formattedMrspeedyOrders = getFormattedMrspeedyOrders({
+      mrspeedyOrders,
+      stores,
+    });
 
     const pdfDoc = printer.createPdfKitDocument(
       disbursementDD({
@@ -192,17 +203,12 @@ exports.createDisbursementInvoicePdf = ({
         onlineBanking,
         onlineBankingTotalRevenueShare,
         onlineBankingTotalAmountPayable,
-        formattedDragonpayOrders: getFormattedDragonpayOrders({
-          dragonpayOrders,
-          stores,
-        }),
+        onlineBankingTotalPurchaseAmount,
+        formattedDragonpayOrders,
         mrspeedy,
         mrspeedyTotalRevenueShare,
         mrspeedyTotalAmountPayable,
-        formattedMrspeedyOrders: getFormattedMrspeedyOrders({
-          mrspeedyOrders,
-          stores,
-        }),
+        formattedMrspeedyOrders,
       })
     );
     const fileStream = fileRef.createWriteStream();
@@ -218,6 +224,7 @@ exports.createDisbursementInvoicePdf = ({
           userEmail,
           userName,
           dateIssued,
+          additionalEmailText,
         })
       );
     });

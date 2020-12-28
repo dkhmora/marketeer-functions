@@ -22,6 +22,7 @@ exports.notifyUserOfOrderConfirmation = async ({
   userEmail,
   userName,
   dateIssued,
+  additionalEmailText,
 }) => {
   const file = admin.storage().bucket().file(`${filePath}${fileName}`);
 
@@ -52,6 +53,7 @@ exports.notifyUserOfOrderConfirmation = async ({
         {
           user_name: userName,
           date_issued: dateIssued,
+          additional_email_text: additionalEmailText,
         },
         (err, data) => {
           if (err) {
